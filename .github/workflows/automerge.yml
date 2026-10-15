@@ -1,5 +1,5 @@
 # 検査（QA）がプルリクエストで ✅ になったら、そのプルリクエストを自動でマージし、GitHub Pages の公開を起こす。
-# （last-tell と同じ仕組み。satou さん 2026-10-15「GitHub の権限はすべてあげるので、設定等の対応もお願い」）
+# 中身は共通部品 satou-aaaaa/shared-workflows（last-tell と同じ仕組み）。
 # - 対象は、このリポジトリの中のブランチから出したプルリクエストだけ
 # - 下書きのもの、ラベル「自動マージしない」が付いたもの、.github/ を変えるものはマージしない（手でマージ）
 # - 検査した時のコミットから新しいコミットが積まれていたら、マージしない（新しい方の検査を待つ）
@@ -15,41 +15,8 @@ permissions:
   pull-requests: write
   pages: write
 
-concurrency:
-  group: automerge
-  cancel-in-progress: false
-
 jobs:
   merge:
-    if: >-
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: 検査の通ったプルリクエストをマージする
-        id: merge
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-          BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: |
-          pr=$(gh api "repos/$REPO/pulls?state=open&head=${REPO%%/*}:$BRANCH" --jq '.[0].number // empty')
-          if [ -z "$pr" ]; then echo "開いているプルリクエストがありません"; exit 0; fi
-          info=$(gh api "repos/$REPO/pulls/$pr")
-          if [ "$(jq -r .draft <<<"$info")" = true ]; then echo "#$pr は下書きなのでマージしません"; exit 0; fi
-          if jq -e '.labels[].name | select(. == "自動マージしない")' <<<"$info" >/dev/null; then echo "#$pr は「自動マージしない」"; exit 0; fi
-          # .github/ を変える PR は GITHUB_TOKEN ではマージできない（workflows 権限が無い）ので手でマージ
-          files=$(gh api --paginate "repos/$REPO/pulls/$pr/files" --jq '.[].filename')
-          if echo "$files" | grep -q '^\.github/'; then echo "#$pr は .github/ を変えるので手でマージ"; exit 0; fi
-          if [ "$(jq -r .head.sha <<<"$info")" != "$SHA" ]; then echo "#$pr に新しいコミットがあるので、その検査を待ちます"; exit 0; fi
-          gh api -X PUT "repos/$REPO/pulls/$pr/merge" -f merge_method=squash -f sha="$SHA" --jq .message
-          echo "merged=true" >> "$GITHUB_OUTPUT"
-      - name: 公開（GitHub Pages）を起こす
-        # GITHUB_TOKEN でのマージは main への push として他のワークフローを起こさないため、公開をここから頼む
-        if: steps.merge.outputs.merged == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .status || echo "::warning::公開を起こせませんでした（main への次の push で公開されます）"
+    uses: satou-aaaaa/shared-workflows/.github/workflows/automerge.yml@main
+    with:
+      pages_build: true

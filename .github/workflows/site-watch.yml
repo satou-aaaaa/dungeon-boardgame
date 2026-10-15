@@ -2,10 +2,10 @@ name: Site watch
 
 # 公開中のページ（GitHub Pages）が開けるかを毎日見る。ゲーム本体（index.html・style.css・data.js・game.js）が
 # 200 で返らなければ失敗にし、ci-failure-issue.yml がラベル ci-failure の Issue を立てる（次に成功すれば閉じる）。
-# Claude は使わない。公開URLは Pages の設定から取るので、リポジトリ名やドメインが変わっても直さなくてよい。
+# Claude は使わない。中身は共通部品 satou-aaaaa/shared-workflows にある。
 on:
   schedule:
-    # 毎日 06:17 JST（= 21:17 UTC）。朝のタスク整理の前に結果が出るように（last-tell と同じ時刻）
+    # 毎日 06:17 JST（= 21:17 UTC）。朝のタスク整理の前に結果が出るように
     - cron: "17 21 * * *"
   workflow_dispatch:
 
@@ -19,32 +19,7 @@ concurrency:
 
 jobs:
   watch:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: 公開ページを開いてみる
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          base=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url 2>/dev/null || true)
-          if [ -z "$base" ]; then
-            echo "Pages が有効になっていないので、何もせずに終わります" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          base="${base%/}/"
-          echo "公開URL: $base" | tee -a "$GITHUB_STEP_SUMMARY"
-          bad=0
-          for f in "" index.html style.css data.js game.js; do
-            # 一時的な揺れで Issue が立たないよう、3回まで試す
-            code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 2 --retry-delay 20 --retry-all-errors \
-              --max-time 30 "${base}${f}" || echo 000)
-            if [ "$code" = 200 ]; then
-              echo "- OK ${f:-（トップ）}" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "- NG ${f:-（トップ）}: HTTP $code" >> "$GITHUB_STEP_SUMMARY"
-              echo "::error title=公開ページが開けません::${base}${f} が HTTP $code"
-              bad=1
-            fi
-          done
-          exit "$bad"
+    uses: satou-aaaaa/shared-workflows/.github/workflows/site-watch.yml@main
+    with:
+      # 公開URLからの相対パス（空白区切り）。トップページは常に見る
+      paths: index.html style.css data.js game.js
