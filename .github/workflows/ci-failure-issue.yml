@@ -5,7 +5,7 @@ name: CI failure issue
 # 監督エージェントが毎回 API で失敗を探す代わりに、この Issue を見るだけで済むようにするためのもの（Claude は使わない）。
 on:
   workflow_run:
-    workflows: ["QA"]
+    workflows: ["QA", "Site watch"]
     types: [completed]
 
 permissions:
