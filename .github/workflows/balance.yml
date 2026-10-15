@@ -1,0 +1,73 @@
+name: Balance
+
+# 週1回、多めに自動対戦させてジョブのバランスを見る（判定は Claude を使わない）。qa/balance.mjs が目安を外れたと判断したら、
+# ラベル balance の Issue を1件にまとめて立てる（開いていればコメントを足す）。直すのは「issue 自動対応」のルーティン（data.js の調整）。
+# 目安に戻ったら Issue を自動で閉じる。
+on:
+  schedule:
+    # 毎週水曜 05:37 JST（= 火曜 20:37 UTC）
+    - cron: "37 20 * * 2"
+  workflow_dispatch:
+    inputs:
+      games:
+        description: '対戦するゲーム数'
+        default: '120'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: balance
+  cancel-in-progress: false
+
+jobs:
+  balance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Playwright を入れる
+        run: |
+          cd qa
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: 自動対戦（種は週ごとに変える）
+        run: node qa/run.mjs --games ${{ inputs.games || '120' }} --seed $(( $(date +%s) / 604800 * 1000 )) --out qa-report
+      - name: バランスを見る
+        id: bal
+        run: |
+          set +e
+          node qa/balance.mjs qa-report
+          rc=$?
+          set -e
+          cat qa-report/balance.md >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" = 3 ]; then echo "attention=true" >> "$GITHUB_OUTPUT"; elif [ "$rc" != 0 ]; then exit "$rc"; fi
+      - name: Issue を立てる・閉じる
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ATTENTION: ${{ steps.bal.outputs.attention }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="バランスの見直し（自動の点検）"
+          num=$(gh issue list --state open --label balance --limit 20 --json number,title --jq ".[] | select(.title == \"${title}\") | .number" | head -n1)
+          if [ "${ATTENTION:-}" != true ]; then
+            if [ -n "$num" ]; then gh issue close "$num" --comment "目安の範囲内に戻ったので閉じます: ${RUN_URL}"; fi
+            exit 0
+          fi
+          body="$(cat qa-report/balance.md)
+
+          実行: ${RUN_URL}
+
+          直し方の目安: data.js の数値を少しずつ変え、PR の QA の表（ジョブごとの勝率）で前後を比べる。ルールの方向性に関わる変更が要るときは、推奨案を添えて needs-decision で確認する。"
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "$body"
+          else
+            gh label create balance --color FBCA04 --description "ジョブのバランス（自動の点検）" 2>/dev/null || true
+            gh issue create --title "$title" --label balance --body "$body"
+          fi
