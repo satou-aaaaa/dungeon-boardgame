@@ -1,8 +1,7 @@
 name: Changes
 
 # 遊ぶ人向けの「更新情報」ページ（changes.html）を、マージされたプルリクエストの題から作り直す（Claude は使わない）。
-# 検査や CI だけを変えた PR（.github/・qa/・tools/・README・CLAUDE.md だけ）と bot の PR は載せない。
-# 中身が変わったら main にコミットし、GitHub Pages の公開を起こす。GITHUB_TOKEN のコミットはこのワークフローを再び起こさない。
+# 検査や CI だけを変えた PR と bot の PR は載せない。中身は共通部品 satou-aaaaa/shared-workflows。
 on:
   push:
     branches: [main]
@@ -18,43 +17,9 @@ permissions:
   pull-requests: read
   pages: write
 
-concurrency:
-  group: changes
-  cancel-in-progress: false
-
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-      - name: 更新情報を作る
-        env:
-          GH_TOKEN: ${{ github.token }}
-          R: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$R/pulls?state=closed&base=main&per_page=60" > "$RUNNER_TEMP/prs.json"
-          : > "$RUNNER_TEMP/app.txt"
-          for n in $(jq -r '.[] | select(.merged_at) | .number' "$RUNNER_TEMP/prs.json"); do
-            if gh api "repos/$R/pulls/$n/files?per_page=100" --jq '.[].filename' | grep -qvE '^(\.github/|qa/|tools/|README|CLAUDE)'; then
-              echo "$n" >> "$RUNNER_TEMP/app.txt"
-            fi
-          done
-          node tools/make-changes.mjs "$RUNNER_TEMP/prs.json" "ダンジョン脱出ハクスラ（試遊版）" "$RUNNER_TEMP/app.txt" > changes.html
-      - name: 変わっていればコミットして公開する
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if git diff --quiet -- changes.html && git ls-files --error-unmatch changes.html >/dev/null 2>&1; then echo "変更なし"; exit 0; fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add changes.html
-          git commit -m "更新情報を作り直す（自動）"
-          git push origin HEAD:main
-          gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" --jq .status || echo "::warning::公開を起こせませんでした（main への次の push で公開されます）"
+    uses: satou-aaaaa/shared-workflows/.github/workflows/changes-page.yml@main
+    with:
+      app_name: ダンジョン脱出ハクスラ（試遊版）
+      pages_build: true
