@@ -23,6 +23,8 @@ const CONFIG = {
   exApMax: 3,              // エクストラAPのストック上限
   asCap: 3,                // AS（アクションスキル）の所持上限
 
+  combatDice: 2,           // 戦闘職が手番の最初に振るダイスの数（出目を見てから移動・行動に割り振る）
+
   fleeTarget: 4,           // 逃走：🎲この値以上で成功（AP1）
   lockTarget: 5,           // 鍵付き宝箱を素で開ける：🎲この値以上（AP2）
   lockApCost: 2,
@@ -148,3 +150,15 @@ const TREASURES = {
   hiyaku:  { name: '秘薬',         effect: 'full',   text: 'HP全快', n: 2 },
   mimic:   { name: 'ミミック！',   effect: 'mimic',  text: '宝箱は化け物だった。戦闘！', n: 2 },
 };
+
+// ダンジョンの鼓動（ラウンドの終わりに1枚めくる。全員に効く）
+const PULSE = {
+  zouen:     { name: '増援',         effect: 'spawn',   text: '各層の通路（または空になった部屋）1マスにモンスターが住みつく', n: 3 },
+  mezame:    { name: 'ボスの目覚め', effect: 'bossAtk', value: 1, text: '次の鼓動まで、ボスのATK+1', n: 2 },
+  izumi:     { name: '癒しの泉',     effect: 'healAll', value: 2, text: '全員HP+2', n: 2 },
+  takara:    { name: '宝の再生',     effect: 'refill',  text: '各層の空になった宝箱1つに宝が戻る', n: 2 },
+  kiri:      { name: '濃い霧',       effect: 'fog',     value: 1, text: '次の鼓動まで、移動のマス数-1（最低1）', n: 2 },
+  seijaku:   { name: '静寂',         effect: 'none',    text: '何も起きない', n: 2 },
+};
+// 出口が閉じ始めるラウンド（この範囲のどこか。山札の後半に「出口が閉じ始める」を混ぜるのと同じ）と、閉じるまでのラウンド数
+const PULSE_CONFIG = { closeRound: [20, 24], closeCountdown: 3 };
