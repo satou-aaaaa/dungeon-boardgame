@@ -29,7 +29,7 @@ const CONFIG = {
   trapHit: 3,              // 罠：🎲この値以下でダメージ
   trapDamage: [2, 3, 4],   // 層ごとの罠ダメージ
   spNeeded: 2,             // 探索職の脱出に必要なSPトレジャー数
-  spXp: 1,                 // SPトレジャーを開けたときの経験値
+  spXp: 2,                 // SPトレジャーを開けたときの経験値
   finalBossLayer: 3,       // 戦闘職はこの層のボスを倒すと出口が開く
 };
 
@@ -50,13 +50,15 @@ const JOBS = {
   thief: {
     name: '盗賊', kind: '探索職',
     hp: 6, atk: 0, ap: 3,
-    apRegen: 2,           // 毎ターンAP+2（最大値まで）
+    apRegen: 3,           // 毎ターンAP+3（最大値まで）
     moveDie: 'half',      // 移動は🎲の半分（切り上げ）
     canFlee: true,
     startPs: 'kagishi',
     escape: 'sp',
+    exploreXp: 1,         // 宝箱・イベント・逃走成功で経験値+1（探索で育つ）
+    bossOptional: true,   // ボスマスに止まっても戦わずに通り過ぎられる
     growth: { 2: { maxHp: 2 }, 3: { atk: 1 }, 4: { maxHp: 2 }, 5: { maxAp: 1 }, 6: { maxHp: 2 }, 7: { atk: 1 } },
-    desc: 'AP1でダイス1回、APがある限り何度でも動ける。攻撃は🎲のみ。戦闘から逃げられる。SPトレジャー2つで出口が開く。',
+    desc: 'AP1でダイス1回、APがある限り何度でも動ける。攻撃は🎲のみ。戦闘から逃げられる。宝箱・イベント・逃走成功で経験値+1。ボスは戦わずに通り過ぎられる。SPトレジャー2つで出口が開く。',
   },
 };
 
