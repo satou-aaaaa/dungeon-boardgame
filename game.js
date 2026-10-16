@@ -247,9 +247,19 @@ async function resolveSquare(p) {
       await encounter(p, makeMonster(MONSTERS[p.layer][id], p.layer + 1, false));
       break;
     }
-    case 'boss':
-      await encounter(p, makeMonster(BOSSES[p.layer], p.layer + 1, true));
+    case 'boss': {
+      const b = BOSSES[p.layer];
+      if (JOBS[p.job].bossOptional) {
+        const c = await modal({
+          title: `💀 ${esc(b.name)} の部屋`,
+          html: `<p>ボスが眠っている。${esc(JOBS[p.job].name)}の脱出にボスは要らない。</p>`,
+          buttons: [{ label: '🤫 そっと通り過ぎる', value: 'pass', cls: 'primary' }, { label: '⚔️ 挑む', value: 'fight' }],
+        });
+        if (c === 'pass') { log(`${p.name} は ${b.name} の横をそっと通り過ぎた`); break; }
+      }
+      await encounter(p, makeMonster(b, p.layer + 1, true));
       break;
+    }
     case 'treasure':
       if (sq.used) { log(`${p.name}：宝箱はもう空だ`); break; }
       sq.used = true; await doTreasure(p); break;
@@ -258,7 +268,7 @@ async function resolveSquare(p) {
       sq.used = true;
       log(`${p.name} は不思議な祭壇を見つけた`);
       await info('✨ イベント', '<p>不思議な祭壇が光っている…</p><p>アクションスキル（AS）を1枚得た。</p>');
-      await gainAS(p); break;
+      await gainAS(p); exploreXp(p, '祭壇を調べた'); await checkLevel(p); break;
     case 'trap': await doTrap(p); break;
     case 'sp': if (!sq.used) await doChest(p, sq); break;
     case 'exit': await doExit(p); break;
@@ -301,6 +311,7 @@ async function encounter(p, m) {
       if (t >= CONFIG.fleeTarget) {
         log(`${p.name} は逃走に成功（🎲${r}）`);
         await info('🏃 逃走成功', `<p class="dice">${DICE[r]}</p><p>${r}${s.fleeBonus ? `+${s.fleeBonus}` : ''} = ${t}。うまく逃げ切った！</p>`);
+        exploreXp(p, '逃げ切った'); await checkLevel(p);
         return;
       }
       log(`${p.name} は逃走に失敗（🎲${r}）`);
@@ -344,6 +355,7 @@ async function battle(p, m) {
         if (t >= CONFIG.fleeTarget) {
           log(`${p.name} は戦闘から逃走した（🎲${r}）`);
           await info('🏃 逃走成功', `<p class="dice">${DICE[r]}</p><p>${t}。なんとか逃げ切った！</p>`);
+          exploreXp(p, '逃げ切った'); await checkLevel(p);
           return 'fled';
         }
         msg += `<span class="dice">${DICE[r]}</span> 逃走失敗…`; counter = true;
@@ -403,6 +415,15 @@ async function winBattle(p, m, msg) {
   await checkLevel(p);
 }
 
+// 探索職は探索でも経験値を得る（JOBS の exploreXp。宝箱・イベント・逃走成功）
+function exploreXp(p, why) {
+  const n = JOBS[p.job].exploreXp || 0;
+  if (!n) return;
+  p.xp += n;
+  log(`${p.name} は${why}（経験値+${n}）`);
+  toast(`✨ ${pname(p)} 経験値+${n}（${why}）`);
+}
+
 async function gainAS(p) {
   const id = draw('as');
   if (!id) { log('ASの山が尽きている'); toast('ASの山が尽きている'); return; }
@@ -440,6 +461,7 @@ async function doTreasure(p) {
     default: break;
   }
   if (s.treasureAs) await gainAS(p);
+  exploreXp(p, '宝を見つけた');
   await checkLevel(p);
 }
 
