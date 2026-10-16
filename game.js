@@ -9,7 +9,7 @@ const SQ_NAME = { monster: 'モンスター', boss: 'ボス', treasure: 'トレ�
 const SPECIAL_STOP = new Set(['stairsUp', 'stairsDown', 'boss', 'sp', 'exit']);
 const DICE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 const STAT_LABEL = { maxHp: '最大HP', atk: 'ATK', maxAp: '最大AP' };
-const SAVE_KEY = 'dungeon-bg-save-v1';
+const SAVE_KEY = 'dungeon-bg-save-v2'; // v2: ダイスの割り振りと鼓動デッキ
 
 let S = null;      // ゲーム状態
 let busy = false;  // 処理中は操作を受け付けない
@@ -45,19 +45,21 @@ function newGame(setup) {
     monsterDecks['m' + li] = makeDeck(counts); monsterDiscards['m' + li] = [];
   });
   const trCounts = {}; for (const [id, t] of Object.entries(TREASURES)) trCounts[id] = t.n;
+  const pulseCounts = {}; for (const [id, c] of Object.entries(PULSE)) pulseCounts[id] = c.n;
   S = {
     players: setup.map((s, i) => {
       const j = JOBS[s.job];
       return {
         name: s.name, job: s.job, color: COLORS[i], lv: 1, xp: 0, hp: j.hp, ap: j.ap, exAp: 0,
-        ps: [j.startPs], as: [], layer: 0, pos: 0, moved: false, dash: 0, rest: false,
+        ps: [j.startPs], as: [], layer: 0, pos: 0, pool: [], movesLeft: 0, dash: 0, rest: false,
         bossKills: [], sp: 0, turns: 0,
       };
     }),
     cur: 0, round: 1, board: buildBoard(),
-    decks: { ...monsterDecks, tr: makeDeck(trCounts), as: makeDeck(AS_DECK), ps: makeDeck(PS_DECK), psr: makeDeck(PS_RARE_DECK) },
-    discards: { ...monsterDiscards, tr: [], as: [] },
-    log: [], phase: 'action', dests: null, winner: null, lastRoll: null,
+    decks: { ...monsterDecks, tr: makeDeck(trCounts), as: makeDeck(AS_DECK), ps: makeDeck(PS_DECK), psr: makeDeck(PS_RARE_DECK), pulse: makeDeck(pulseCounts) },
+    discards: { ...monsterDiscards, tr: [], as: [], pulse: [] },
+    log: [], phase: 'action', dests: null, winner: null, lost: false, lastRoll: null,
+    pulseFx: {}, pulseCard: null, closeAt: PULSE_CONFIG.closeRound[0] + rnd(PULSE_CONFIG.closeRound[1] - PULSE_CONFIG.closeRound[0] + 1), closeLeft: null,
   };
   log('冒険が始まった。第3層（いちばん外側）の出口から脱出しよう！');
 }
@@ -94,16 +96,14 @@ function pay(p, c) {
   return true;
 }
 const isCombat = (p) => JOBS[p.job].apRegen === 'full';
-function canMove(p) { if (p.hp <= 0) return false; return isCombat(p) ? (!p.moved || p.exAp > 0) : canPay(p, 1); }
-function moveCostText(p) { return isCombat(p) ? (!p.moved ? '' : '（EX AP1）') : (p.ap >= 1 ? '（AP1）' : '（EX AP1）'); }
-function payMove(p) {
-  if (isCombat(p)) {
-    if (!p.moved) { p.moved = true; return true; }
-    if (p.exAp > 0) { p.exAp--; log(`${p.name} はエクストラAPで追加のダイスを振った`); return true; }
-    return false;
-  }
-  return pay(p, 1);
-}
+// ダイスの割り振り：振ったダイスは「手元のダイス」（p.pool）に置き、出目を見てから移動・攻撃・鍵開け・逃走などに使う。
+// 戦闘職は手番の最初に2個振る（移動は1手番1回、EX APでダイス+1個と移動+1回）。探索職はAP1ごとに1個振れる。使わなかったダイスは手番の終わりに消える。
+function canMove(p) { return p.hp > 0 && p.pool.length > 0 && p.movesLeft > 0; }
+function canRoll(p) { if (p.hp <= 0) return false; return isCombat(p) ? p.exAp > 0 : canPay(p, 1); }
+function rollText(p) { return isCombat(p) ? 'EX AP1でダイスを1個足す（移動+1回）' : `AP1でダイスを1個振る${p.ap >= 1 ? '' : '（EX AP）'}`; }
+function useDie(p, i) { const [v] = p.pool.splice(i, 1); return v; }
+const dieBtns = (p, prefix, fmt) => p.pool.map((v, i) => ({ v, i })).filter((d, k, a) => a.findIndex((x) => x.v === d.v) === k).sort((a, b) => b.v - a.v)
+  .map((d) => ({ label: fmt(d.v), value: prefix + d.i, cls: 'die' }));
 function canSpecial(p) { const s = st(p); return p.lv >= (s.specialEarly ? 3 : CONFIG.specialLevel) && s.maxAp > 0 && p.ap >= s.maxAp; }
 function canEscape(p) { return JOBS[p.job].escape === 'boss' ? p.bossKills.includes(CONFIG.finalBossLayer) : p.sp >= CONFIG.spNeeded; }
 function escapeText(p) {
@@ -143,7 +143,7 @@ async function startTurn() {
   p.turns++;
   S.phase = 'action'; S.dests = null; S.lastRoll = null;
   if (p.rest) {
-    p.rest = false; p.hp = Math.ceil(s.maxHp / 2);
+    p.rest = false; p.hp = Math.ceil(s.maxHp / 2); p.pool = []; p.movesLeft = 0;
     log(`${p.name} は休んで回復した（HP ${p.hp}）`);
     render();
     await info(`${pname(p)} のターン`, `<p>前のターンで力尽きたため、このターンは休みです。</p><p>HPが半分（${p.hp}）まで回復しました。</p>`);
@@ -151,16 +151,76 @@ async function startTurn() {
   }
   p.ap = j.apRegen === 'full' ? s.maxAp : Math.min(s.maxAp, p.ap + j.apRegen);
   if (s.regen && p.hp < s.maxHp) p.hp = Math.min(s.maxHp, p.hp + s.regen);
-  p.moved = false;
+  p.pool = []; p.movesLeft = isCombat(p) ? 1 : 99;
+  if (isCombat(p)) { for (let k = 0; k < CONFIG.combatDice; k++) p.pool.push(roll(p)); log(`${p.name} 🎲${p.pool.join('・')} を振った`); }
   render(); save();
   if (S.players.length > 1) await info('手番交代', `<p>${pname(p)}（${j.name}）のターンです。</p><p class="muted">端末を ${esc(p.name)} さんに渡してください。</p>`);
 }
 
-function endTurn() {
+async function endTurn() {
   if (busy || S.winner) return;
+  cur().pool = [];
   S.cur = (S.cur + 1) % S.players.length;
-  if (S.cur === 0) S.round++;
+  if (S.cur === 0) {
+    busy = true;
+    try { await pulse(); } finally { busy = false; }
+    if (S.winner) { render(); return; }
+    S.round++;
+  }
   startTurn();
+}
+
+// ---------- ダンジョンの鼓動（ラウンドの終わりに1枚） ----------
+async function pulse() {
+  S.pulseFx = {};
+  const id = draw('pulse'); S.discards.pulse.push(id); const c = PULSE[id];
+  S.pulseCard = id;
+  const notes = [];
+  if (c.effect === 'spawn') {
+    S.board.forEach((ring, li) => {
+      const cand = ring.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'empty' || ((q.type === 'treasure' || q.type === 'event') && q.used));
+      if (!cand.length) return;
+      const { q } = cand[rnd(cand.length)]; q.type = 'monster'; delete q.used; notes.push(`第${li + 1}層`);
+    });
+  } else if (c.effect === 'bossAtk') S.pulseFx.bossAtk = c.value;
+  else if (c.effect === 'healAll') S.players.forEach((q) => { if (!q.rest && q.hp > 0) q.hp = Math.min(st(q).maxHp, q.hp + c.value); });
+  else if (c.effect === 'refill') {
+    S.board.forEach((ring, li) => {
+      const cand = ring.filter((q) => q.type === 'treasure' && q.used);
+      if (cand.length) { delete cand[rnd(cand.length)].used; notes.push(`第${li + 1}層`); }
+    });
+  } else if (c.effect === 'fog') S.pulseFx.moveMinus = c.value;
+  log(`ダンジョンの鼓動：「${c.name}」${c.text}`);
+  let extra = notes.length ? `<p class="muted">（${notes.join('・')}）</p>` : '';
+  // 出口が閉じ始める
+  if (S.closeLeft === null && S.round >= S.closeAt) {
+    S.closeLeft = PULSE_CONFIG.closeCountdown;
+    log(`出口が閉じ始めた！ あと${S.closeLeft}ラウンド`);
+    extra += `<p class="bad">🚪 出口が閉じ始めた！ あと${S.closeLeft}ラウンドで誰も脱出できなければ、全員の負け。</p>`;
+  } else if (S.closeLeft !== null) {
+    S.closeLeft--;
+    if (S.closeLeft <= 0) {
+      S.lost = true; S.winner = '（時間切れ）';
+      log('出口が閉ざされた… 誰も脱出できなかった');
+      clearSave(); render();
+      await showLose();
+      return;
+    }
+    extra += `<p class="bad">🚪 出口が閉じるまで あと${S.closeLeft}ラウンド</p>`;
+  }
+  render();
+  await info(`💓 ダンジョンの鼓動：${esc(c.name)}`, `<p>${esc(c.text)}</p>${extra}`);
+}
+
+async function showLose() {
+  const rows = S.players.map((q) => `<tr><td>${pname(q)}</td><td>${JOBS[q.job].name}</td><td>Lv${q.lv}</td><td>${q.turns}</td><td>${escapeText(q)}</td></tr>`).join('');
+  const c = await modal({
+    title: '🚪 出口が閉ざされた…',
+    html: `<p>${S.round}ラウンド目で出口が閉じ、誰も脱出できませんでした。全員の負けです。</p>
+      <table class="result"><tr><th>名前</th><th>ジョブ</th><th>Lv</th><th>手番数</th><th>脱出条件</th></tr>${rows}</table>`,
+    buttons: [{ label: '新しいゲーム', value: 'new', cls: 'primary' }, { label: '盤面を見る', value: 'board' }],
+  });
+  if (c === 'new') showSetup();
 }
 
 function afterAction() {
@@ -171,17 +231,32 @@ function afterAction() {
   render(); save();
 }
 
-async function actMove() {
-  if (busy || S.phase !== 'action') return;
-  const p = cur(); if (!canMove(p)) return;
-  payMove(p);
-  const r = roll(p); const s = st(p);
+function moveSteps(p, r) {
+  const s = st(p);
   const base = JOBS[p.job].moveDie === 'half' ? Math.ceil(r / 2) : r;
-  const steps = base + s.move + p.dash;
+  return Math.max(1, base + s.move + p.dash - (S.pulseFx.moveMinus || 0));
+}
+
+function actRoll() {
+  if (busy || S.phase !== 'action') return;
+  const p = cur(); if (!canRoll(p)) return;
+  if (isCombat(p)) { p.exAp--; p.movesLeft++; log(`${p.name} はエクストラAPでダイスを1個足した`); } else pay(p, 1);
+  const r = roll(p); p.pool.push(r);
+  log(`${p.name} 🎲${r} を振った`);
+  afterAction();
+}
+
+async function actMove(i) {
+  if (busy || S.phase !== 'action') return;
+  const p = cur(); if (!canMove(p) || i == null || i >= p.pool.length) return;
+  const r = useDie(p, i); p.movesLeft--;
+  const s = st(p);
+  const base = JOBS[p.job].moveDie === 'half' ? Math.ceil(r / 2) : r;
+  const steps = moveSteps(p, r);
   const bonus = steps - base;
   p.dash = 0;
   S.lastRoll = { r, steps };
-  log(`${p.name} 🎲${r} → ${steps}マス移動${bonus ? `（ボーナス+${bonus}）` : ''}`);
+  log(`${p.name} 🎲${r} → ${steps}マス移動${bonus ? `（${bonus > 0 ? '+' : ''}${bonus}）` : ''}`);
   S.dests = computeDests(p, steps);
   S.phase = 'choose';
   render(); save();
@@ -215,7 +290,8 @@ async function actStairs(dir) {
   if (busy || S.phase !== 'action') return;
   const p = cur(); if (!canMove(p)) return;
   busy = true;
-  payMove(p);
+  // 階段は移動1回分。いちばん小さいダイスを使う
+  useDie(p, p.pool.indexOf(Math.min(...p.pool))); p.movesLeft--;
   p.layer += dir;
   p.pos = S.board[p.layer].findIndex((q) => q.type === (dir > 0 ? 'stairsDown' : 'stairsUp'));
   log(`${p.name} は第${p.layer + 1}層へ${dir > 0 ? '上った' : '下りた'}`);
@@ -277,8 +353,8 @@ async function resolveSquare(p) {
 }
 
 function makeMonster(def, layer, boss) {
-  const count = def.count || 1;
-  return { name: def.name, layer, boss, xp: def.xp, as: !!def.as, bodies: Array.from({ length: count }, () => ({ hp: def.hp, max: def.hp, atk: def.atk })) };
+  const count = def.count || 1; const atk = def.atk + (boss ? (S.pulseFx.bossAtk || 0) : 0);
+  return { name: def.name, layer, boss, xp: def.xp, as: !!def.as, bodies: Array.from({ length: count }, () => ({ hp: def.hp, max: def.hp, atk })) };
 }
 
 function monsterHtml(m) {
@@ -304,10 +380,13 @@ async function encounter(p, m) {
       buttons: [
         { label: '⚔️ 戦う', value: 'fight', cls: 'primary' },
         { label: `🏃 逃げる（AP1・🎲${CONFIG.fleeTarget}以上${s.fleeBonus ? `、+${s.fleeBonus}` : ''}）`, value: 'flee', disabled: !canPay(p, 1) },
+        ...dieBtns(p, 'fdie', (v) => `🏃 手元の🎲${v}で逃げる（${v + s.fleeBonus >= CONFIG.fleeTarget ? '成功' : '失敗'}）`),
       ],
     });
-    if (c === 'flee') {
-      pay(p, 1); const r = roll(p); const t = r + s.fleeBonus;
+    if (c === 'flee' || String(c).startsWith('fdie')) {
+      let r;
+      if (c === 'flee') { pay(p, 1); r = roll(p); } else r = useDie(p, +String(c).slice(4));
+      const t = r + s.fleeBonus;
       if (t >= CONFIG.fleeTarget) {
         log(`${p.name} は逃走に成功（🎲${r}）`);
         await info('🏃 逃走成功', `<p class="dice">${DICE[r]}</p><p>${r}${s.fleeBonus ? `+${s.fleeBonus}` : ''} = ${t}。うまく逃げ切った！</p>`);
@@ -328,20 +407,26 @@ async function battle(p, m) {
   let first = true; let shield = false; let msg = '';
   for (;;) {
     const s = st(p);
-    const buttons = [{ label: `⚔️ 攻撃（ATK${s.atk}＋🎲${first && s.firstStrike ? `＋${s.firstStrike}` : ''}）`, value: 'atk', cls: 'primary' }];
+    const fs = first && s.firstStrike ? s.firstStrike : 0;
+    const buttons = [{ label: `⚔️ 攻撃（ATK${s.atk}＋🎲${fs ? `＋${fs}` : ''}）`, value: 'atk', cls: 'primary' }];
+    buttons.push(...dieBtns(p, 'adie', (v) => `⚔️ 手元の🎲${v}で攻撃（${s.atk + v + fs}ダメージ）`));
     p.as.forEach((id, i) => {
       const d = AS[id];
       if (d.when === 'battle' || d.when === 'any') buttons.push({ label: `🃏 ${esc(d.name)}（AP${d.cost}）<small>${esc(d.text)}</small>`, value: 'as' + i, disabled: !canPay(p, d.cost), cls: 'card' });
     });
     if (canSpecial(p)) buttons.push({ label: `💥 必殺技（AP全消費）<small>敵全体に ATK＋🎲🎲${s.specialBonus ? `＋${s.specialBonus}` : ''}</small>`, value: 'special', cls: 'danger card' });
-    if (s.canFlee) buttons.push({ label: `🏃 逃走（AP1・🎲${CONFIG.fleeTarget}以上）`, value: 'flee', disabled: !canPay(p, 1) });
+    if (s.canFlee) {
+      buttons.push({ label: `🏃 逃走（AP1・🎲${CONFIG.fleeTarget}以上）`, value: 'flee', disabled: !canPay(p, 1) });
+      buttons.push(...dieBtns(p, 'fdie', (v) => `🏃 手元の🎲${v}で逃走（${v + s.fleeBonus >= CONFIG.fleeTarget ? '成功' : '失敗'}）`));
+    }
 
     const c = await modal({ title: `⚔️ 戦闘：${esc(m.name)}`, html: monsterHtml(m) + playerMini(p) + (msg ? `<div class="bmsg">${msg}</div>` : ''), buttons });
     let counter = false; msg = '';
 
-    if (c === 'atk' || c === 'special' || c === 'flee') {
-      if (c === 'atk') {
-        const r = roll(p); const bonus = first ? s.firstStrike : 0; const dmg = s.atk + r + bonus;
+    const cs = String(c);
+    if (c === 'atk' || c === 'special' || c === 'flee' || cs.startsWith('adie') || cs.startsWith('fdie')) {
+      if (c === 'atk' || cs.startsWith('adie')) {
+        const r = c === 'atk' ? roll(p) : useDie(p, +cs.slice(4)); const bonus = first ? s.firstStrike : 0; const dmg = s.atk + r + bonus;
         hitOne(m, dmg); first = false; counter = true;
         msg += `<span class="dice">${DICE[r]}</span> ${s.atk}+${r}${bonus ? `+${bonus}` : ''} = <b>${dmg}ダメージ</b>`;
         log(`${p.name} の攻撃 🎲${r} → ${dmg}ダメージ`);
@@ -351,7 +436,9 @@ async function battle(p, m) {
         msg += `💥 必殺技！ <span class="dice">${DICE[r1]}${DICE[r2]}</span> 敵全体に <b>${dmg}ダメージ</b>`;
         log(`${p.name} の必殺技！ 敵全体に${dmg}ダメージ`);
       } else {
-        pay(p, 1); const r = roll(p); const t = r + s.fleeBonus;
+        let r;
+        if (c === 'flee') { pay(p, 1); r = roll(p); } else r = useDie(p, +cs.slice(4));
+        const t = r + s.fleeBonus;
         if (t >= CONFIG.fleeTarget) {
           log(`${p.name} は戦闘から逃走した（🎲${r}）`);
           await info('🏃 逃走成功', `<p class="dice">${DICE[r]}</p><p>${t}。なんとか逃げ切った！</p>`);
@@ -361,7 +448,7 @@ async function battle(p, m) {
         msg += `<span class="dice">${DICE[r]}</span> 逃走失敗…`; counter = true;
         log(`${p.name} は逃走に失敗（🎲${r}）`);
       }
-    } else if (typeof c === 'string' && c.startsWith('as')) {
+    } else if (cs.startsWith('as')) {
       const i = +c.slice(2); const id = p.as[i]; const d = AS[id];
       pay(p, d.cost); p.as.splice(i, 1); S.discards.as.push(id);
       log(`${p.name} はAS「${d.name}」を使った`);
@@ -469,17 +556,20 @@ async function doTrap(p) {
   const s = st(p); const dmg = CONFIG.trapDamage[p.layer];
   if (s.trapSense) { log(`${p.name} は罠に気付いて避けた`); toast('⚠️ 罠感知で罠を回避'); return; }
   const idx = p.as.findIndex((id) => AS[id].when === 'trap');
-  if (idx >= 0) {
-    const c = await modal({
-      title: '⚠️ 罠だ！', html: `<p>このままだと 🎲${CONFIG.trapHit}以下 で ${dmg}ダメージ。</p>`,
-      buttons: [{ label: '🃏 罠解除を使う', value: 'use', cls: 'primary' }, { label: '🎲 運に任せる', value: 'roll' }],
-    });
+  let r = null;
+  if (idx >= 0 || p.pool.length) {
+    const buttons = [];
+    if (idx >= 0) buttons.push({ label: '🃏 罠解除を使う', value: 'use', cls: 'primary' });
+    buttons.push({ label: '🎲 運に任せる', value: 'roll' });
+    buttons.push(...dieBtns(p, 'tdie', (v) => `🎲 手元の${v}でかわす（${v <= CONFIG.trapHit ? 'かかる' : 'かわせる'}）`));
+    const c = await modal({ title: '⚠️ 罠だ！', html: `<p>このままだと 🎲${CONFIG.trapHit}以下 で ${dmg}ダメージ。</p>`, buttons });
     if (c === 'use') {
       const [id] = p.as.splice(idx, 1); S.discards.as.push(id);
       log(`${p.name} は罠を解除した`); return;
     }
+    if (String(c).startsWith('tdie')) r = useDie(p, +String(c).slice(4));
   }
-  const r = roll(p);
+  if (r === null) r = roll(p);
   if (r <= CONFIG.trapHit) {
     p.hp -= dmg;
     log(`${p.name} は罠にかかった（🎲${r}、${dmg}ダメージ）`);
@@ -501,12 +591,15 @@ async function doChest(p, sq) {
     const idx = p.as.findIndex((id) => AS[id].when === 'lock');
     const buttons = [];
     if (idx >= 0) buttons.push({ label: '🃏 鍵開けASを使う（確実）', value: 'as', cls: 'primary' });
+    buttons.push(...dieBtns(p, 'ldie', (v) => `🔓 手元の🎲${v}で開ける（${v + s.lockBonus >= CONFIG.lockTarget ? '開く' : '開かない'}）`));
     buttons.push({ label: `🔓 素で開ける（AP${CONFIG.lockApCost}・🎲${CONFIG.lockTarget}以上${s.lockBonus ? `、+${s.lockBonus}` : ''}）`, value: 'try', disabled: !canPay(p, CONFIG.lockApCost) });
     buttons.push({ label: 'あきらめる', value: 'no' });
     const c = await modal({ title: '👑 鍵付きの宝箱', html: '<p>中にはスペシャルトレジャー（SP）が入っているようだ。</p>', buttons });
     if (c === 'as') { const [id] = p.as.splice(idx, 1); S.discards.as.push(id); opened = true; log(`${p.name} は鍵開けASで宝箱を開けた`); }
-    if (c === 'try') {
-      pay(p, CONFIG.lockApCost); const r = roll(p); const t = r + s.lockBonus;
+    if (c === 'try' || String(c).startsWith('ldie')) {
+      let r;
+      if (c === 'try') { pay(p, CONFIG.lockApCost); r = roll(p); } else r = useDie(p, +String(c).slice(4));
+      const t = r + s.lockBonus;
       if (t >= CONFIG.lockTarget) { opened = true; log(`${p.name} は鍵を開けた（🎲${r}）`); }
       else { log(`${p.name} は鍵開けに失敗（🎲${r}）`); await info('🔒 失敗', `<p class="dice">${DICE[r]}</p><p>${r}${s.lockBonus ? `+${s.lockBonus}` : ''} = ${t}。開かなかった…</p>`); }
     }
@@ -641,12 +734,14 @@ function renderPanel() {
     <div>ATK <b>${s.atk}</b>　移動 ${j.moveDie === 'half' ? '🎲÷2' : '🎲'}${s.move ? `+${s.move}` : ''}${p.dash ? `（次+${p.dash}）` : ''}</div>
     <div>脱出：${escapeText(p)}</div>
   </div>
-  <div class="where">現在地：第${p.layer + 1}層・${ICONS[sq.type]} ${SQ_NAME[sq.type]}</div>`;
+  <div class="where">現在地：第${p.layer + 1}層・${ICONS[sq.type]} ${SQ_NAME[sq.type]}</div>
+  <div class="where">💓 ${S.pulseCard ? `${esc(PULSE[S.pulseCard].name)}：${esc(PULSE[S.pulseCard].text)}` : 'ダンジョンはまだ静かだ'}${S.closeLeft !== null ? `<br><b class="bad">🚪 出口が閉じるまで あと${S.closeLeft}ラウンド</b>` : ''}</div>`;
 
   // 行動
   h += '<div class="actions">';
   if (S.winner) {
-    h += `<p class="good">${esc(S.winner)} が脱出しました。</p><button class="btn primary" data-act="new">新しいゲーム</button>`;
+    h += S.lost ? '<p class="bad">出口が閉ざされ、全員の負けです。</p>' : `<p class="good">${esc(S.winner)} が脱出しました。</p>`;
+    h += '<button class="btn primary" data-act="new">新しいゲーム</button>';
   } else if (S.phase === 'choose') {
     h += `<p>🎲 <b>${S.lastRoll.r}</b> → <b>${S.lastRoll.steps}マス</b>。行き先を盤面の光っているマスか、下のボタンで選んでください。<br><span class="muted">階段・ボス・宝箱・出口は途中で止まれます。</span></p><div class="dests">`;
     for (const d of S.dests) {
@@ -656,11 +751,14 @@ function renderPanel() {
     h += '</div>';
   } else {
     const can = canMove(p) && !busy;
-    h += `<button class="btn primary" data-act="move" ${can ? '' : 'disabled'}>🎲 ダイスを振って移動${moveCostText(p)}</button>`;
-    if (sq.type === 'stairsUp') h += `<button class="btn" data-act="up" ${can ? '' : 'disabled'}>⬆️ 第${p.layer + 2}層へ上る${moveCostText(p)}</button>`;
-    if (sq.type === 'stairsDown') h += `<button class="btn" data-act="down" ${can ? '' : 'disabled'}>⬇️ 第${p.layer}層へ下りる${moveCostText(p)}</button>`;
+    h += `<div class="pool">手元のダイス：${p.pool.length ? p.pool.map((v) => `<span class="pdie">${DICE[v]}</span>`).join('') : '<span class="muted">なし</span>'}<br><span class="muted">${isCombat(p) ? `移動はあと${p.movesLeft}回。` : ''}残ったダイスは戦闘・鍵開け・逃走・罠でも使えます（手番の終わりに消えます）。</span></div>`;
+    p.pool.forEach((v, i) => {
+      h += `<button class="btn primary" data-act="move" data-die="${i}" ${can ? '' : 'disabled'}>🎲${v}で移動（${moveSteps(p, v)}マス）</button>`;
+    });
+    if (canRoll(p) || !isCombat(p)) h += `<button class="btn" data-act="roll" ${canRoll(p) && !busy ? '' : 'disabled'}>🎲 ${rollText(p)}</button>`;
+    if (sq.type === 'stairsUp') h += `<button class="btn" data-act="up" ${can ? '' : 'disabled'}>⬆️ 第${p.layer + 2}層へ上る（ダイス1個）</button>`;
+    if (sq.type === 'stairsDown') h += `<button class="btn" data-act="down" ${can ? '' : 'disabled'}>⬇️ 第${p.layer}層へ下りる（ダイス1個）</button>`;
     h += `<button class="btn" data-act="end">ターン終了</button>`;
-    if (!canMove(p)) h += `<p class="muted">${isCombat(p) ? 'このターンのダイスは使いました（エクストラAPがあればもう1回振れます）。' : 'APがありません。'}</p>`;
   }
   h += '</div>';
 
@@ -683,7 +781,7 @@ function renderPanel() {
   el.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', () => actUseAS(+b.dataset.as)));
   el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
     const a = b.dataset.act;
-    if (a === 'move') actMove(); else if (a === 'up') actStairs(1); else if (a === 'down') actStairs(-1);
+    if (a === 'move') actMove(+b.dataset.die); else if (a === 'roll') actRoll(); else if (a === 'up') actStairs(1); else if (a === 'down') actStairs(-1);
     else if (a === 'end') endTurn(); else if (a === 'new') showSetup();
   }));
 }

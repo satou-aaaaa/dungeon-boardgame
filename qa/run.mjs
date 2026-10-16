@@ -26,7 +26,7 @@ const SETUPS = [
   ['warrior', 'thief', 'warrior', 'thief'],
 ];
 
-// ページの中で動くボット。モーダルが出ていればボタンを選び、なければ 上り階段 > ダイス > ターン終了 の順に押す。
+// ページの中で動くボット。モーダルが出ていればボタンを選び、なければ 上り階段 > 手元のダイスで移動 > ダイスを振る > ターン終了 の順に押す。
 async function botPlay(maxSteps) {
   const sleep = () => new Promise((r) => setTimeout(r, 0));
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -48,9 +48,10 @@ async function botPlay(maxSteps) {
         const as = enabled('#panel [data-as]');
         const up = enabled('#panel [data-act="up"]');
         const mv = enabled('#panel [data-act="move"]');
+        const rl = enabled('#panel [data-act="roll"]');
         const end = enabled('#panel [data-act="end"]');
         if (as.length && Math.random() < 0.2) btn = pick(as);
-        else btn = up[0] || mv[0] || end[0] || null;
+        else btn = up[0] || mv[0] || rl[0] || end[0] || null;
       }
     }
     if (!btn) {
@@ -90,7 +91,7 @@ for (let g = 0; g < GAMES; g++) {
   await page.click('#start');
   let r;
   try { r = await page.evaluate(botPlay, MAX_STEPS); } catch (e) { r = { ok: false, why: `検査の実行エラー: ${e.message.split('\n')[0]}` }; }
-  const st = await page.evaluate(() => ({ winner: S.winner, round: S.round, players: S.players.map((p) => ({ name: p.name, job: p.job, lv: p.lv, turns: p.turns, layer: p.layer })) })).catch(() => null);
+  const st = await page.evaluate(() => ({ winner: S.winner, lost: !!S.lost, round: S.round, players: S.players.map((p) => ({ name: p.name, job: p.job, lv: p.lv, turns: p.turns, layer: p.layer })) })).catch(() => null);
   const tag = `ゲーム${g + 1}（種 ${seed}・${setup.join('/')}）`;
   if (errors.length) failures.push(`${tag}: ${[...new Set(errors)].slice(0, 3).join(' / ')}`);
   if (!r.ok) failures.push(`${tag}: ${r.why}${r.html ? `\n    画面: ${r.html.replace(/\s+/g, ' ')}` : ''}`);
@@ -112,6 +113,8 @@ const med = (a) => { if (!a.length) return '-'; const b = [...a].sort((x, y) => 
 const JOBNAME = { warrior: '戦士', thief: '盗賊' };
 let md = `## 自動対戦の検査（${GAMES}ゲーム・種 ${SEED0}〜${SEED0 + GAMES - 1}）\n\n`;
 md += failures.length ? `### ❌ 失敗 ${failures.length}件\n\n${failures.map((f) => `- ${f}`).join('\n')}\n\n` : '✅ エラー・止まりなし\n\n';
+const lost = results.filter((x) => x.lost).length;
+md += `出口が閉じて全員の負け（時間切れ）: ${lost}/${results.length}\n\n`;
 if (warns.length) md += `### ⚠️ 誰も脱出しなかったゲーム ${warns.length}件\n\n${warns.map((f) => `- ${f}`).join('\n')}\n\n`;
 md += '### 📊 ジョブごとの結果（ボットの対戦。バランスの目安）\n\n| ジョブ | 参加 | 脱出（勝ち） | 勝率 | 脱出時ラウンド 平均/中央 | 脱出した人の手番数 平均 |\n|---|---|---|---|---|---|\n';
 for (const [k, j] of Object.entries(jobs)) md += `| ${JOBNAME[k] || k} | ${j.played} | ${j.wins} | ${Math.round((100 * j.wins) / j.played)}% | ${avg(j.rounds)} / ${med(j.rounds)} | ${avg(j.turns)} |\n`;

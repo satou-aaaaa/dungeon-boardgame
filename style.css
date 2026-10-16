@@ -117,3 +117,5 @@ select, input { background: var(--bg3); color: var(--text); border: 1px solid va
 #toasts { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; z-index: 20; pointer-events: none; width: calc(100% - 32px); max-width: 420px; }
 .toast { background: #000d; border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; font-size: 14px; animation: fade 2.6s forwards; }
 @keyframes fade { 0% { opacity: 0; transform: translateY(8px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.pool { margin: 4px 0 8px; }
+.pdie { font-size: 1.8em; line-height: 1; margin-right: 4px; vertical-align: middle; }
