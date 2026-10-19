@@ -97,10 +97,13 @@ function pay(p, c) {
 }
 const isCombat = (p) => JOBS[p.job].apRegen === 'full';
 // ダイスの割り振り：振ったダイスは「手元のダイス」（p.pool）に置き、出目を見てから移動・攻撃・鍵開け・逃走などに使う。
-// 戦闘職は手番の最初に2個振る（移動は1手番1回、EX APでダイス+1個と移動+1回）。探索職はAP1ごとに1個振れる。使わなかったダイスは手番の終わりに消える。
+// 戦闘職は手番の最初に2個振る（移動は1手番1回、EX APでダイス+1個と移動+1回）。
+// 探索職は手番の最初に「使うAPの数だけ」まとめて振る（1手番1回。残したAPは逃走・鍵開け・ASに使える。あとからEX APで1個ずつ足せる）。
+// 使わなかったダイスは手番の終わりに消える。
 function canMove(p) { return p.hp > 0 && p.pool.length > 0 && p.movesLeft > 0; }
-function canRoll(p) { if (p.hp <= 0) return false; return isCombat(p) ? p.exAp > 0 : canPay(p, 1); }
-function rollText(p) { return isCombat(p) ? 'EX AP1でダイスを1個足す（移動+1回）' : `AP1でダイスを1個振る${p.ap >= 1 ? '' : '（EX AP）'}`; }
+const canBatch = (p) => p.hp > 0 && !isCombat(p) && !p.batched && p.ap > 0;
+function canRoll(p) { if (p.hp <= 0) return false; return isCombat(p) || p.batched || p.ap <= 0 ? p.exAp > 0 : false; }
+function rollText(p) { return isCombat(p) ? 'EX AP1でダイスを1個足す（移動+1回）' : 'EX AP1でダイスを1個足す'; }
 function useDie(p, i) { const [v] = p.pool.splice(i, 1); return v; }
 const dieBtns = (p, prefix, fmt) => p.pool.map((v, i) => ({ v, i })).filter((d, k, a) => a.findIndex((x) => x.v === d.v) === k).sort((a, b) => b.v - a.v)
   .map((d) => ({ label: fmt(d.v), value: prefix + d.i, cls: 'die' }));
@@ -151,7 +154,7 @@ async function startTurn() {
   }
   p.ap = j.apRegen === 'full' ? s.maxAp : Math.min(s.maxAp, p.ap + j.apRegen);
   if (s.regen && p.hp < s.maxHp) p.hp = Math.min(s.maxHp, p.hp + s.regen);
-  p.pool = []; p.movesLeft = isCombat(p) ? 1 : 99;
+  p.pool = []; p.movesLeft = isCombat(p) ? 1 : 99; p.batched = false;
   if (isCombat(p)) { for (let k = 0; k < CONFIG.combatDice; k++) p.pool.push(roll(p)); log(`${p.name} 🎲${p.pool.join('・')} を振った`); }
   render(); save();
   if (S.players.length > 1) await info('手番交代', `<p>${pname(p)}（${j.name}）のターンです。</p><p class="muted">端末を ${esc(p.name)} さんに渡してください。</p>`);
@@ -162,6 +165,7 @@ async function endTurn() {
   cur().pool = [];
   S.cur = (S.cur + 1) % S.players.length;
   if (S.cur === 0) {
+    if (S.escaped && S.escaped.length) { await finishRace(); return; }
     busy = true;
     try { await pulse(); } finally { busy = false; }
     if (S.winner) { render(); return; }
@@ -175,7 +179,7 @@ async function pulse() {
   S.pulseFx = {};
   const id = draw('pulse'); S.discards.pulse.push(id); const c = PULSE[id];
   S.pulseCard = id;
-  const notes = [];
+  const notes = []; let lvUp = [];
   if (c.effect === 'spawn') {
     S.board.forEach((ring, li) => {
       const cand = ring.map((q, i) => ({ q, i })).filter(({ q }) => q.type === 'empty' || ((q.type === 'treasure' || q.type === 'event') && q.used));
@@ -190,6 +194,13 @@ async function pulse() {
       if (cand.length) { delete cand[rnd(cand.length)].used; notes.push(`第${li + 1}層`); }
     });
   } else if (c.effect === 'fog') S.pulseFx.moveMinus = c.value;
+  else if (c.effect === 'catchup') {
+    // いちばんレベルが低い人（全員同じなら誰も）に経験値。レベルアップは鼓動の表示のあとで行う
+    const low = Math.min(...S.players.map((q) => q.lv));
+    if (S.players.length > 1 && S.players.some((q) => q.lv > low)) lvUp = S.players.filter((q) => q.lv === low);
+    lvUp.forEach((q) => { q.xp += c.value; });
+    notes.push(lvUp.length ? `${lvUp.map((q) => q.name).join('・')} 経験値+${c.value}` : '全員が同じレベルなので何も起きない');
+  }
   log(`ダンジョンの鼓動：「${c.name}」${c.text}`);
   let extra = notes.length ? `<p class="muted">（${notes.join('・')}）</p>` : '';
   // 出口が閉じ始める
@@ -210,6 +221,7 @@ async function pulse() {
   }
   render();
   await info(`💓 ダンジョンの鼓動：${esc(c.name)}`, `<p>${esc(c.text)}</p>${extra}`);
+  for (const q of lvUp) await checkLevel(q);
 }
 
 async function showLose() {
@@ -227,7 +239,7 @@ function afterAction() {
   if (S.winner) { render(); return; }
   const p = cur();
   S.phase = 'action';
-  if (p.rest) { render(); endTurn(); return; }
+  if (p.rest || p.escaped) { render(); endTurn(); return; }
   render(); save();
 }
 
@@ -237,12 +249,22 @@ function moveSteps(p, r) {
   return Math.max(1, base + s.move + p.dash - (S.pulseFx.moveMinus || 0));
 }
 
-function actRoll() {
+function actRoll(n) {
   if (busy || S.phase !== 'action') return;
-  const p = cur(); if (!canRoll(p)) return;
-  if (isCombat(p)) { p.exAp--; p.movesLeft++; log(`${p.name} はエクストラAPでダイスを1個足した`); } else pay(p, 1);
-  const r = roll(p); p.pool.push(r);
-  log(`${p.name} 🎲${r} を振った`);
+  const p = cur();
+  if (n) {
+    // 探索職のまとめ振り
+    if (!canBatch(p) || n > p.ap) return;
+    p.ap -= n; p.batched = true;
+    const rs = []; for (let k = 0; k < n; k++) rs.push(roll(p));
+    p.pool.push(...rs);
+    log(`${p.name} はAP${n}で 🎲${rs.join('・')} を振った`);
+  } else {
+    if (!canRoll(p)) return;
+    p.exAp--; if (isCombat(p)) p.movesLeft++;
+    const r = roll(p); p.pool.push(r);
+    log(`${p.name} はエクストラAPで 🎲${r} を足した`);
+  }
   afterAction();
 }
 
@@ -612,16 +634,30 @@ async function doChest(p, sq) {
   await checkLevel(p);
 }
 
+// 最後の1周：誰かが脱出しても、そのラウンドの残りの人には手番が回る。同じラウンドで複数人が脱出したら、
+// レベルの高い人 → SPトレジャーとボス撃破の合計が多い人 → 先に脱出した人 の順で勝ちを決める。
 async function doExit(p) {
   if (canEscape(p)) {
-    S.winner = p.name;
+    p.escaped = true; S.escaped = S.escaped || []; S.escaped.push(S.cur);
     log(`${p.name} がダンジョンから脱出した！`);
-    clearSave(); render();
-    await showWin(p);
+    if (S.cur === S.players.length - 1) { await finishRace(); return; }
+    render();
+    await info('🚪 脱出！', `<p>${pname(p)} がダンジョンから脱出した！</p><p>このラウンドの残りの人にも手番が回ります。同じラウンドで脱出した人がいれば、レベルの高い人の勝ちです。</p>`);
   } else {
     log(`${p.name}：出口は固く閉ざされている`);
     await info('🚪 出口', `<p>扉は固く閉ざされている…</p><p>脱出条件：${escapeText(p)}</p>`);
   }
+}
+
+async function finishRace() {
+  const score = (q) => [q.lv, q.sp + q.bossKills.length];
+  const ranked = [...S.escaped].map((k, order) => ({ q: S.players[k], order }))
+    .sort((a, b) => { const x = score(a.q), y = score(b.q); return (y[0] - x[0]) || (y[1] - x[1]) || (a.order - b.order); });
+  const p = ranked[0].q;
+  S.winner = p.name;
+  if (ranked.length > 1) log(`同じラウンドに${ranked.length}人が脱出。レベルの高い ${p.name} の勝ち`);
+  clearSave(); render();
+  await showWin(p);
 }
 
 async function showWin(p) {
@@ -630,6 +666,7 @@ async function showWin(p) {
     title: `🎉 ${pname(p)} が脱出した！`,
     html: `<p>${S.round}ラウンド目で ${esc(p.name)}（${JOBS[p.job].name}）が勝利しました。</p>
       <table class="result"><tr><th>名前</th><th>ジョブ</th><th>Lv</th><th>手番数</th><th>脱出条件</th></tr>${rows}</table>
+      ${S.escaped && S.escaped.length > 1 ? `<p>同じラウンドに ${S.escaped.map((k) => esc(S.players[k].name)).join('・')} が脱出し、レベル（同じならSPトレジャーとボス撃破の数）で勝ちを決めました。</p>` : ''}
       <p class="muted">試遊メモ：ジョブごとの「脱出までの手番数」を記録しておくと、バランス調整に使えます。</p>`,
     buttons: [{ label: '新しいゲーム', value: 'new', cls: 'primary' }, { label: '盤面を見る', value: 'board' }],
   });
@@ -755,7 +792,8 @@ function renderPanel() {
     p.pool.forEach((v, i) => {
       h += `<button class="btn primary" data-act="move" data-die="${i}" ${can ? '' : 'disabled'}>🎲${v}で移動（${moveSteps(p, v)}マス）</button>`;
     });
-    if (canRoll(p) || !isCombat(p)) h += `<button class="btn" data-act="roll" ${canRoll(p) && !busy ? '' : 'disabled'}>🎲 ${rollText(p)}</button>`;
+    if (canBatch(p)) for (let n = p.ap; n >= 1; n--) h += `<button class="btn${n === p.ap ? ' primary' : ''}" data-act="roll" data-n="${n}" ${busy ? 'disabled' : ''}>🎲 AP${n}でダイスを${n}個まとめて振る${n < p.ap ? `（AP${p.ap - n}残す）` : ''}</button>`;
+    else if (canRoll(p)) h += `<button class="btn" data-act="roll" ${busy ? 'disabled' : ''}>🎲 ${rollText(p)}</button>`;
     if (sq.type === 'stairsUp') h += `<button class="btn" data-act="up" ${can ? '' : 'disabled'}>⬆️ 第${p.layer + 2}層へ上る（ダイス1個）</button>`;
     if (sq.type === 'stairsDown') h += `<button class="btn" data-act="down" ${can ? '' : 'disabled'}>⬇️ 第${p.layer}層へ下りる（ダイス1個）</button>`;
     h += `<button class="btn" data-act="end">ターン終了</button>`;
@@ -781,7 +819,7 @@ function renderPanel() {
   el.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', () => actUseAS(+b.dataset.as)));
   el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
     const a = b.dataset.act;
-    if (a === 'move') actMove(+b.dataset.die); else if (a === 'roll') actRoll(); else if (a === 'up') actStairs(1); else if (a === 'down') actStairs(-1);
+    if (a === 'move') actMove(+b.dataset.die); else if (a === 'roll') actRoll(b.dataset.n ? +b.dataset.n : 0); else if (a === 'up') actStairs(1); else if (a === 'down') actStairs(-1);
     else if (a === 'end') endTurn(); else if (a === 'new') showSetup();
   }));
 }

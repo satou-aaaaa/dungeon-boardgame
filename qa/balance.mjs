@@ -37,7 +37,7 @@ if (stuckRate > STUCK) problems.push(`誰も脱出しなかったゲームが ${
 let md = `## バランスの点検（${results.length}ゲーム）\n\n`;
 md += problems.length ? `### ⚠️ 見直しが要りそうなところ\n\n${problems.map((p) => `- ${p}`).join('\n')}\n\n` : '✅ 目安の範囲内\n\n';
 md += '| ジョブ | 勝ち数 | 公平なら | 公平度 | 1人用の脱出 |\n|---|---|---|---|---|\n' + rates.map((r) => `| ${r.job} | ${r.wins} | ${r.fair.toFixed(1)} | ${r.rate.toFixed(0)}% | ${r.soloWins}/${r.solo} |`).join('\n') + '\n';
-md += `\n誰も脱出しなかったゲーム: ${warns.length}/${results.length}\n\n数値は data.js を変えて調整する。ボットは「上り階段 > ダイス > ターン終了」の単純な打ち方なので、人の試遊の感想も合わせて判断する。技（スキル）はボットが2割しか使わないので、技に頼るジョブは低めに出やすい。\n`;
+md += `\n誰も脱出しなかったゲーム: ${warns.length}/${results.length}\n\n数値は data.js を変えて調整する。ボットは出目を見て選ぶ単純な打ち方なので、人の試遊の感想も合わせて判断する。技（スキル）はボットが2割しか使わないので、技に頼るジョブは低めに出やすい。\n`;
 writeFileSync(`${dir}/balance.md`, md);
 console.log(md);
 process.exit(problems.length ? 3 : 0);

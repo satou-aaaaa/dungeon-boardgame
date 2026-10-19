@@ -52,7 +52,7 @@ const JOBS = {
   thief: {
     name: '盗賊', kind: '探索職',
     hp: 6, atk: 0, ap: 3,
-    apRegen: 3,           // 毎ターンAP+3（最大値まで）
+    apRegen: 2,           // 毎ターンAP+2（最大値まで）
     moveDie: 'half',      // 移動は🎲の半分（切り上げ）
     canFlee: true,
     startPs: 'kagishi',
@@ -159,6 +159,7 @@ const PULSE = {
   takara:    { name: '宝の再生',     effect: 'refill',  text: '各層の空になった宝箱1つに宝が戻る', n: 2 },
   kiri:      { name: '濃い霧',       effect: 'fog',     value: 1, text: '次の鼓動まで、移動のマス数-1（最低1）', n: 2 },
   seijaku:   { name: '静寂',         effect: 'none',    text: '何も起きない', n: 2 },
+  oikaze:    { name: '追い風',       effect: 'catchup', value: 2, text: 'いちばんレベルが低い人（全員同じなら誰も）が経験値+2', n: 2 },
 };
 // 出口が閉じ始めるラウンド（この範囲のどこか。山札の後半に「出口が閉じ始める」を混ぜるのと同じ）と、閉じるまでのラウンド数
 const PULSE_CONFIG = { closeRound: [20, 24], closeCountdown: 3 };

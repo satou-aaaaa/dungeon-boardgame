@@ -26,7 +26,11 @@ const SETUPS = [
   ['warrior', 'thief', 'warrior', 'thief'],
 ];
 
-// ページの中で動くボット。モーダルが出ていればボタンを選び、なければ 上り階段 > 手元のダイスで移動 > ダイスを振る > ターン終了 の順に押す。
+// ページの中で動くボット。人に近い単純な打ち方をする（ボタンの文字を読んで選ぶ）。
+//   モーダル: 成功する出目（「成功」「開く」「かわせる」）・ボスの素通り・罠解除/鍵開けAS・必殺技があれば選ぶ。手元の🎲が4以上ならそれで攻撃。
+//             それ以外は 85% で先頭（たいてい「攻撃」「OK」）、15% でランダム。
+//   盤面:   盗賊は未開封のSP宝箱、戦士はLv5以上なら第3層のボス、脱出できるなら出口、上り階段を狙う。必要ないボスマスは避ける。
+//           ボタンは 上り階段 > いちばん遠くへ行けるダイスで移動 > ダイスを振る > ターン終了 の順に押す。
 async function botPlay(maxSteps) {
   const sleep = () => new Promise((r) => setTimeout(r, 0));
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
@@ -40,10 +44,22 @@ async function botPlay(maxSteps) {
     if (modal) {
       const bs = enabled('#modal .m-buttons button');
       // 7割は先頭（たいてい「攻撃」「OK」など前に進むもの）、3割はランダム
-      btn = bs.length ? (Math.random() < 0.7 ? bs[0] : pick(bs)) : null;
+      const txt = (b) => b.textContent;
+      const good = bs.find((b) => /（成功）|（開く）|（かわせる）|そっと通り過ぎる|罠解除を使う|鍵開けASを使う/.test(txt(b)));
+      const dieAtk = bs.filter((b) => /手元の🎲\d+で攻撃/.test(txt(b))).sort((a, b) => +txt(b).match(/(\d+)ダメージ/)[1] - +txt(a).match(/(\d+)ダメージ/)[1]);
+      const special = bs.find((b) => /必殺技/.test(txt(b)));
+      if (good) btn = good;
+      else if (special) btn = special;
+      else if (dieAtk.length && +txt(dieAtk[0]).match(/🎲(\d+)/)[1] >= 4) btn = dieAtk[0];
+      else btn = bs.length ? (Math.random() < 0.85 ? bs[0] : pick(bs)) : null;
     } else {
       const dests = enabled('#panel [data-dest]');
-      if (dests.length) btn = pick(dests);
+      const P = S.players[S.cur]; const thief = P.job === 'thief';
+      const sqOf = (d) => S.board[P.layer][+d.dataset.dest];
+      const bossTime = !thief && P.layer === 2 && P.lv >= 5;
+      const want = (d) => { const q = sqOf(d); return (thief && q.type === 'sp' && !q.used) || (q.type === 'exit' && canEscape(P)) || (q.type === 'boss' && bossTime) || q.type === 'stairsUp'; };
+      const safe = dests.filter((d) => sqOf(d).type !== 'boss' || bossTime);
+      if (dests.length) btn = dests.find(want) || pick(safe.length ? safe : dests);
       else {
         const as = enabled('#panel [data-as]');
         const up = enabled('#panel [data-act="up"]');
@@ -51,7 +67,11 @@ async function botPlay(maxSteps) {
         const rl = enabled('#panel [data-act="roll"]');
         const end = enabled('#panel [data-act="end"]');
         if (as.length && Math.random() < 0.2) btn = pick(as);
-        else btn = up[0] || mv[0] || rl[0] || end[0] || null;
+        else {
+          const far = (b) => +(b.textContent.match(/(\d+)マス/) || [0, 0])[1];
+          const mvBest = [...mv].sort((a, b) => far(b) - far(a))[0];
+          btn = up[0] || mvBest || rl[0] || end[0] || null;
+        }
       }
     }
     if (!btn) {
@@ -118,7 +138,7 @@ md += `出口が閉じて全員の負け（時間切れ）: ${lost}/${results.le
 if (warns.length) md += `### ⚠️ 誰も脱出しなかったゲーム ${warns.length}件\n\n${warns.map((f) => `- ${f}`).join('\n')}\n\n`;
 md += '### 📊 ジョブごとの結果（ボットの対戦。バランスの目安）\n\n| ジョブ | 参加 | 脱出（勝ち） | 勝率 | 脱出時ラウンド 平均/中央 | 脱出した人の手番数 平均 |\n|---|---|---|---|---|---|\n';
 for (const [k, j] of Object.entries(jobs)) md += `| ${JOBNAME[k] || k} | ${j.played} | ${j.wins} | ${Math.round((100 * j.wins) / j.played)}% | ${avg(j.rounds)} / ${med(j.rounds)} | ${avg(j.turns)} |\n`;
-md += '\n※ ボットは「上り階段 > ダイス > ターン終了」の単純な打ち方です。人の試遊とは数字がずれるので、data.js を変えたときの前後比べに使ってください。\n';
+md += '\n※ ボットは出目を見て選ぶ単純な打ち方です。人の試遊とは数字がずれるので、data.js を変えたときの前後比べに使ってください。\n';
 
 mkdirSync(OUT, { recursive: true });
 writeFileSync(`${OUT}/report.md`, md);
