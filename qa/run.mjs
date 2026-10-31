@@ -101,6 +101,9 @@ for (let g = 0; g < GAMES; g++) {
   }, seed);
   await page.goto(url);
   if (g === 0) {
+    // 応援（Ko-fi）は見出しのただのリンク
+    const k = await page.evaluate(() => { const a = document.getElementById('kofi'); return a && a.href === 'https://ko-fi.com/satouaaaaa' && a.rel.includes('noopener'); });
+    if (!k) failures.push('見出しに Ko-fi の応援リンクが無い・形が違う');
     // ルールの表示と閉じる
     await page.click('[data-rules]');
     await page.click('#rules-close');
