@@ -3,5 +3,5 @@
   "private": true,
   "description": "試遊版の自動検査（ブラウザで自動対戦して、エラー・止まり・ジョブごとの脱出手番を見る）",
   "scripts": { "qa": "node run.mjs" },
-  "dependencies": { "playwright": "1.64.0" }
+  "dependencies": { "playwright": "1.64.1" }
 }
