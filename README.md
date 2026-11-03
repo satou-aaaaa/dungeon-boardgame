@@ -31,3 +31,12 @@
 | `style.css` | 見た目 |
 | `data.js` | 数値・カードデータ（調整はここ） |
 | `game.js` | ゲーム進行 |
+
+## 開発
+
+```bash
+bash scripts/setup.sh      # 最初に一度（Node.js の版は .nvmrc）
+node qa/run.mjs --games 30  # push する前の確認（自動対戦の検査）
+```
+
+決まりは [AGENTS.md](AGENTS.md)。
