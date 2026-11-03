@@ -85,7 +85,9 @@ async function botPlay(maxSteps) {
   return { ok: true, steps: maxSteps, capped: true };
 }
 
-const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
+// 準備の1コマンド（scripts/setup.sh）は CHROMIUM_PATH を渡す。PW_CHROMIUM は前からの呼び方
+const exe = process.env.CHROMIUM_PATH || process.env.PW_CHROMIUM;
+const browser = await chromium.launch(exe ? { executablePath: exe } : {});
 const failures = []; const warns = []; const results = [];
 for (let g = 0; g < GAMES; g++) {
   const seed = SEED0 + g; const setup = SETUPS[g % SETUPS.length];
