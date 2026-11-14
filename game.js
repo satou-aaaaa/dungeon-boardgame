@@ -107,8 +107,8 @@ const isCombat = (p) => JOBS[p.job].apRegen === 'full';
 // 探索職は手番の最初に「使うAPの数だけ」まとめて振る（1手番1回。残したAPは逃走・鍵開け・ASに使える。あとからEX APで1個ずつ足せる）。
 // 使わなかったダイスは手番の終わりに消える。
 function canMove(p) { return p.hp > 0 && p.pool.length > 0 && p.movesLeft > 0; }
-const canBatch = (p) => p.hp > 0 && !isCombat(p) && !p.batched && p.ap > 0;
-function canRoll(p) { if (p.hp <= 0) return false; return isCombat(p) || p.batched || p.ap <= 0 ? p.exAp > 0 : false; }
+const canBatch = (p) => p.hp > 0 && !isCombat(p) && p.ap > 0;
+function canRoll(p) { if (p.hp <= 0) return false; return isCombat(p) || p.ap <= 0 ? p.exAp > 0 : false; }
 function rollText(p) { return isCombat(p) ? 'EX AP1でダイスを1個足す（移動+1回）' : 'EX AP1でダイスを1個足す'; }
 function useDie(p, i) { const [v] = p.pool.splice(i, 1); return v; }
 const dieBtns = (p, prefix, fmt) => p.pool.map((v, i) => ({ v, i })).filter((d, k, a) => a.findIndex((x) => x.v === d.v) === k).sort((a, b) => b.v - a.v)
@@ -259,7 +259,7 @@ function actRoll(n) {
   if (busy || S.phase !== 'action') return;
   const p = cur();
   if (n) {
-    // 探索職のまとめ振り
+    // 探索職：AP1につきダイス1個（APがある限り何度でも振れる）
     if (!canBatch(p) || n > p.ap) return;
     p.ap -= n; p.batched = true;
     const rs = []; for (let k = 0; k < n; k++) rs.push(roll(p));
@@ -798,7 +798,7 @@ function renderPanel() {
     p.pool.forEach((v, i) => {
       h += `<button class="btn primary" data-act="move" data-die="${i}" ${can ? '' : 'disabled'}>🎲${v}で移動（${moveSteps(p, v)}マス）</button>`;
     });
-    if (canBatch(p)) for (let n = p.ap; n >= 1; n--) h += `<button class="btn${n === p.ap ? ' primary' : ''}" data-act="roll" data-n="${n}" ${busy ? 'disabled' : ''}>🎲 AP${n}でダイスを${n}個まとめて振る${n < p.ap ? `（AP${p.ap - n}残す）` : ''}</button>`;
+    if (canBatch(p)) h += `<button class="btn primary" data-act="roll" data-n="1" ${busy ? 'disabled' : ''}>🎲 AP1でダイスを1個振る（AP${p.ap}→${p.ap - 1}）</button>`;
     else if (canRoll(p)) h += `<button class="btn" data-act="roll" ${busy ? 'disabled' : ''}>🎲 ${rollText(p)}</button>`;
     if (sq.type === 'stairsUp') h += `<button class="btn" data-act="up" ${can ? '' : 'disabled'}>⬆️ 第${p.layer + 2}層へ上る（ダイス1個）</button>`;
     if (sq.type === 'stairsDown') h += `<button class="btn" data-act="down" ${can ? '' : 'disabled'}>⬇️ 第${p.layer}層へ下りる（ダイス1個）</button>`;
