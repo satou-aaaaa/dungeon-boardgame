@@ -51,7 +51,7 @@ const JOBS = {
   },
   thief: {
     name: '盗賊', kind: '探索職',
-    hp: 6, atk: 0, ap: 3,
+    hp: 6, atk: 0, ap: 2,        // 最大APは Lv3 で+1（1個ずつ振る形に合わせた調整）
     apRegen: 3,           // 毎ターンAP+3（最大値まで）。1個ずつ振る形にしたので+2から上げた
     moveDie: 'half',      // 移動は🎲の半分（切り上げ）
     canFlee: true,
@@ -59,7 +59,7 @@ const JOBS = {
     escape: 'sp',
     exploreXp: 1,         // 宝箱・イベント・逃走成功で経験値+1（探索で育つ）
     bossOptional: true,   // ボスマスに止まっても戦わずに通り過ぎられる
-    growth: { 2: { maxHp: 2 }, 3: { maxHp: 1 }, 4: { maxHp: 2 }, 5: { maxAp: 1 }, 6: { maxHp: 2 }, 7: { maxHp: 1 } },
+    growth: { 2: { maxHp: 2 }, 3: { maxAp: 1 }, 4: { maxHp: 2 }, 5: { maxHp: 1 }, 6: { maxHp: 2 }, 7: { maxHp: 1 } },
     desc: 'AP1でダイス1回、APがある限り何度でも動ける。攻撃は🎲のみ。戦闘から逃げられる。宝箱・イベント・逃走成功で経験値+1。ボスは戦わずに通り過ぎられる。SPトレジャー2つで出口が開く。',
   },
 };
