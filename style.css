@@ -144,3 +144,6 @@ select, input { background: var(--bg3); color: var(--text); border: 1px solid va
 #panel.ai-turn .actions { pointer-events: none; opacity: .75; }
 #panel.ai-turn .cards button, #panel.ai-turn .dests { pointer-events: none; }
 .srow select { max-width: 9em; }
+.psbox { margin-top: 10px; }
+.psbox summary { cursor: pointer; color: var(--accent); font-size: 14px; font-weight: bold; padding: 6px 0; }
+.psbox .cards { margin-top: 6px; }
