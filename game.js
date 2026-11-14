@@ -880,6 +880,27 @@ function feedbackText() {
 }
 function setupFeedback() {
   $('#fb-open').addEventListener('click', () => $('#feedback').classList.add('open'));
+  // 音声入力（ブラウザの Web Speech API。無料・日本語。使えないブラウザではボタンを出さず、キーボードの音声入力を案内する）
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $('#fb-voicehint').hidden = false; } else {
+    $('#fb-mic').hidden = false;
+    let rec = null;
+    const stop = () => { if (rec) { try { rec.stop(); } catch (e) { /* noop */ } } };
+    const setOn = (on) => { $('#fb-mic').setAttribute('aria-pressed', String(on)); $('#fb-mic').textContent = on ? '⏹ 止める（聞いています…）' : '🎤 音声で入力'; };
+    $('#fb-mic').addEventListener('click', () => {
+      if (rec) { stop(); return; }
+      rec = new SR(); rec.lang = 'ja-JP'; rec.continuous = true; rec.interimResults = false;
+      const ta = $('#fb-text');
+      rec.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) ta.value = (ta.value + e.results[i][0].transcript).slice(0, ta.maxLength);
+      };
+      rec.onerror = (e) => { toast(e.error === 'not-allowed' ? 'マイクが許可されていません' : '音声入力できませんでした'); };
+      rec.onend = () => { rec = null; setOn(false); };
+      try { rec.start(); setOn(true); } catch (e) { rec = null; setOn(false); }
+    });
+    $('#fb-close').addEventListener('click', stop);
+    $('#fb-send').addEventListener('click', stop);
+  }
   $('#fb-close').addEventListener('click', () => $('#feedback').classList.remove('open'));
   $('#fb-send').addEventListener('click', () => {
     if (!$('#fb-text').value.trim()) { toast('内容を書いてください'); return; }

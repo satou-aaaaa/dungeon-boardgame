@@ -113,8 +113,10 @@
     <h2>💡 改善提案を送る</h2>
     <p class="muted">遊んでいて気づいたことを書いてください。今のゲーム状況（ジョブ・階層・ラウンドなど）も一緒に付きます。</p>
     <label>種類 <select id="fb-kind"><option>改善したい</option><option>バグ・おかしい</option><option>バランス（強すぎ・弱すぎ）</option><option>ルールがわかりにくい</option><option>アイデア</option></select></label>
+    <p id="fb-voicehint" class="muted" hidden>このブラウザは音声入力ボタンが使えません。スマホならキーボードのマイク🎤で話せます。</p>
     <textarea id="fb-text" rows="5" maxlength="1500" placeholder="例：盗賊の逃走が強すぎる気がする" style="width:100%;margin:8px 0;box-sizing:border-box"></textarea>
     <div class="m-buttons">
+      <button id="fb-mic" class="btn" hidden aria-pressed="false">🎤 音声で入力</button>
       <button id="fb-send" class="btn primary">GitHub で送る</button>
       <button id="fb-copy" class="btn">コピー（アカウントが無い人は、これを satou に送ってください）</button>
       <button id="fb-close" class="btn">閉じる</button>
