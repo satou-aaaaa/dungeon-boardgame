@@ -43,7 +43,25 @@ select, input { background: var(--bg3); color: var(--text); border: 1px solid va
 
 /* layout */
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; align-items: start; }
-@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } .jobs { grid-template-columns: 1fr; } }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .jobs { grid-template-columns: 1fr; }
+  /* スマホ：操作ボタンを最初の画面に出す（盤面より先）。順番：操作 → 盤面 → ログ */
+  .layout { display: flex; flex-direction: column; gap: 12px; }
+  .side { display: contents; }
+  #panel { order: 1; }
+  .boardwrap { order: 2; }
+  .logbox { order: 3; margin-top: 0; }
+  #to-title { order: 4; align-self: flex-start; }
+}
+@media (max-width: 600px) {
+  header { padding: 8px 10px; }
+  h1 { font-size: 15px; }
+  h1 .ver { display: none; }
+  main { padding: 10px 10px 32px; }
+}
+/* 押しやすさ：指で押す小さいボタンも高さ40px以上にする（スマホ・タブレット） */
+@media (pointer: coarse) { .btn.small { min-height: 40px; padding: 8px 12px; } }
 .boardwrap { min-width: 0; }
 #board { width: 100%; max-width: 640px; display: block; margin: 0 auto; }
 .legend { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 10px; }
@@ -119,6 +137,8 @@ select, input { background: var(--bg3); color: var(--text); border: 1px solid va
 @keyframes fade { 0% { opacity: 0; transform: translateY(8px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 .pool { margin: 4px 0 8px; }
 .pdie { font-size: 1.8em; line-height: 1; margin-right: 4px; vertical-align: middle; }
+.hbtns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.hbtns .btn { text-decoration: none; }
 
 /* AIの手番中は、人が盤面のボタンを押せない（AIが自分で押す） */
 #panel.ai-turn .actions { pointer-events: none; opacity: .75; }
