@@ -874,6 +874,9 @@ function showRules() { $('#rules').classList.add('open'); }
 
 // ---------- 改善提案（GitHub の新規 issue 画面を開く。サーバー不要） ----------
 const REPO = 'satou-aaaaa/dungeon-boardgame';
+// ログインなしで送る先：Google フォーム（公開の回答先。鍵ではない）。回答は satou の Google スプレッドシートに溜まる。
+const FORM_ID = '1FAIpQLScpaUcEw1vIaozraNfXuYpk2VGt2g7eMuifEWS5OfesFxIMzQ';
+const FORM_ENTRY = { text: 'entry.1471246700', ctx: 'entry.487296611' };
 function feedbackContext() {
   if (!S) return '画面: タイトル';
   const p = S.players[S.cur];
@@ -906,6 +909,7 @@ function setupFeedback() {
     });
     $('#fb-close').addEventListener('click', stop);
     $('#fb-send').addEventListener('click', stop);
+    $('#fb-form').addEventListener('click', stop);
   }
   $('#fb-close').addEventListener('click', () => $('#feedback').classList.remove('open'));
   $('#fb-send').addEventListener('click', () => {
@@ -914,6 +918,20 @@ function setupFeedback() {
     const url = `https://github.com/${REPO}/issues/new?labels=${encodeURIComponent('feedback')}&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
     window.open(url, '_blank', 'noopener');
     $('#feedback').classList.remove('open'); $('#fb-text').value = '';
+  });
+  $('#fb-form').addEventListener('click', async () => {
+    const text = $('#fb-text').value.trim();
+    if (!text) { toast('内容を書いてください'); return; }
+    const kind = $('#fb-kind').value;
+    const fd = new FormData();
+    fd.append(FORM_ENTRY.text, `[提案] ${kind}\n${text}`);
+    fd.append(FORM_ENTRY.ctx, `${feedbackContext()} / ${document.querySelector('.ver')?.textContent || ''}`);
+    try {
+      // 返事は読めない（no-cors）。送れたかは通信が通ったかで判断する
+      await fetch(`https://docs.google.com/forms/d/e/${FORM_ID}/formResponse`, { method: 'POST', mode: 'no-cors', body: fd });
+      toast('送りました。ありがとう！');
+      $('#feedback').classList.remove('open'); $('#fb-text').value = '';
+    } catch (e) { toast('送れませんでした。「コピー」で文を残せます'); }
   });
   $('#fb-copy').addEventListener('click', async () => {
     if (!$('#fb-text').value.trim()) { toast('内容を書いてください'); return; }
