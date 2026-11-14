@@ -24,6 +24,7 @@ const SETUPS = [
   ['warrior', 'thief'], ['thief', 'warrior'],
   ['warrior', 'thief', 'warrior'],
   ['warrior', 'thief', 'warrior', 'thief'],
+  ['warrior', 'thief:ai'], ['thief:ai', 'warrior:ai'], // 「:ai」はAI席（ゲーム画面のAIが自分で動かす。人の席は下のボットが動かす）
 ];
 
 // ページの中で動くボット。人に近い単純な打ち方をする（ボタンの文字を読んで選ぶ）。
@@ -35,10 +36,11 @@ async function botPlay(maxSteps) {
   const sleep = () => new Promise((r) => setTimeout(r, 0));
   const pick = (a) => a[Math.floor(Math.random() * a.length)];
   const enabled = (sel) => [...document.querySelectorAll(sel)].filter((b) => !b.disabled && b.offsetParent !== null);
-  let same = 0; let last = '';
+  let same = 0; let last = ''; let aiWait = 0;
   for (let step = 0; step < maxSteps; step++) {
     await sleep();
     if (S.winner) return { ok: true, steps: step };
+    if (S.players[S.cur].ai && aiWait < 20000) { aiWait++; step--; await new Promise((r) => setTimeout(r, 5)); continue; } // AI席はai.jsのループが動かす
     // ジョブ限定のAS（AS.jobs）を、そのジョブ以外が持っていたら不具合
     for (const q of S.players) {
       const bad = q.as.find((id) => AS[id].jobs && !AS[id].jobs.includes(q.job));
@@ -47,41 +49,7 @@ async function botPlay(maxSteps) {
       if (JOBS[q.job].kind === '探索職' && st(q).atk) return { ok: false, steps: step, why: '探索職にATKがある（攻撃力の概念は無い）' };
       if (bad) return { ok: false, steps: step, why: `ジョブ外のAS「${AS[bad].name}」を ${JOBS[q.job].name} が持っている` };
     }
-    const modal = document.querySelector('#modal.open');
-    let btn = null;
-    if (modal) {
-      const bs = enabled('#modal .m-buttons button');
-      // 7割は先頭（たいてい「攻撃」「OK」など前に進むもの）、3割はランダム
-      const txt = (b) => b.textContent;
-      const good = bs.find((b) => /（成功）|（開く）|（かわせる）|そっと通り過ぎる|罠解除を使う|鍵開けASを使う/.test(txt(b)));
-      const dieAtk = bs.filter((b) => /手元の🎲\d+で攻撃/.test(txt(b))).sort((a, b) => +txt(b).match(/(\d+)ダメージ/)[1] - +txt(a).match(/(\d+)ダメージ/)[1]);
-      const special = bs.find((b) => /必殺技/.test(txt(b)));
-      if (good) btn = good;
-      else if (special) btn = special;
-      else if (dieAtk.length && +txt(dieAtk[0]).match(/🎲(\d+)/)[1] >= 4) btn = dieAtk[0];
-      else btn = bs.length ? (Math.random() < 0.85 ? bs[0] : pick(bs)) : null;
-    } else {
-      const dests = enabled('#panel [data-dest]');
-      const P = S.players[S.cur]; const thief = P.job === 'thief';
-      const sqOf = (d) => S.board[P.layer][+d.dataset.dest];
-      const bossTime = !thief && P.layer === 2 && P.lv >= 5;
-      const want = (d) => { const q = sqOf(d); return (thief && q.type === 'sp' && !q.used) || (q.type === 'exit' && canEscape(P)) || (q.type === 'boss' && bossTime) || q.type === 'stairsUp'; };
-      const safe = dests.filter((d) => sqOf(d).type !== 'boss' || bossTime);
-      if (dests.length) btn = dests.find(want) || pick(safe.length ? safe : dests);
-      else {
-        const as = enabled('#panel [data-as]');
-        const up = enabled('#panel [data-act="up"]');
-        const mv = enabled('#panel [data-act="move"]');
-        const rl = enabled('#panel [data-act="roll"]');
-        const end = enabled('#panel [data-act="end"]');
-        if (as.length && Math.random() < 0.2) btn = pick(as);
-        else {
-          const far = (b) => +(b.textContent.match(/(\d+)マス/) || [0, 0])[1];
-          const mvBest = [...mv].sort((a, b) => far(b) - far(a))[0];
-          btn = up[0] || mvBest || rl[0] || end[0] || null;
-        }
-      }
-    }
+    const btn = aiChoose(); // ゲーム画面のAIと同じ選び方（ai.js）
     if (!btn) {
       if (typeof busy !== 'undefined' && busy) { same++; if (same > 2000) return { ok: false, steps: step, why: '処理中（busy）のまま進まない' }; continue; }
       return { ok: false, steps: step, why: '押せるボタンが無い', html: document.querySelector('#panel')?.innerText.slice(0, 300) };
@@ -119,8 +87,12 @@ for (let g = 0; g < GAMES; g++) {
     await page.click('#rules-close');
   }
   await page.selectOption('#pcount', String(setup.length));
-  const rows = page.locator('#prows .srow select');
-  for (let i = 0; i < setup.length; i++) await rows.nth(i).selectOption(setup[i]);
+  for (let i = 0; i < setup.length; i++) {
+    const [job, ai] = setup[i].split(':');
+    await page.locator('#prows .srow').nth(i).locator('.s-job').selectOption(job);
+    if (ai) await page.locator('#prows .srow').nth(i).locator('.s-ai').selectOption('ai');
+  }
+  await page.evaluate(() => { AI_DELAY.modal = 5; AI_DELAY.act = 5; }); // AIの間は検査では詰める
   await page.click('#start');
   let r;
   try { r = await page.evaluate(botPlay, MAX_STEPS); } catch (e) { r = { ok: false, why: `検査の実行エラー: ${e.message.split('\n')[0]}` }; }
