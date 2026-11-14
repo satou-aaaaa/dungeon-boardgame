@@ -59,18 +59,18 @@ const JOBS = {
     escape: 'sp',
     exploreXp: 1,         // 宝箱・イベント・逃走成功で経験値+1（探索で育つ）
     bossOptional: true,   // ボスマスに止まっても戦わずに通り過ぎられる
-    growth: { 2: { maxHp: 2 }, 3: { atk: 1 }, 4: { maxHp: 2 }, 5: { maxAp: 1 }, 6: { maxHp: 2 }, 7: { atk: 1 } },
+    growth: { 2: { maxHp: 2 }, 3: { maxHp: 1 }, 4: { maxHp: 2 }, 5: { maxAp: 1 }, 6: { maxHp: 2 }, 7: { maxHp: 1 } },
     desc: 'AP1でダイス1回、APがある限り何度でも動ける。攻撃は🎲のみ。戦闘から逃げられる。宝箱・イベント・逃走成功で経験値+1。ボスは戦わずに通り過ぎられる。SPトレジャー2つで出口が開く。',
   },
 };
 
-// パッシブスキル（PS）。mod の数値が能力に加算されます。
+// パッシブスキル（PS）。mod の数値が能力に加算されます。jobs を付けると、そのジョブだけが取れます（省略は共通）。
 const PS = {
   // 初期PS
-  tousi:     { name: '闘志',   text: '戦闘で最初の攻撃のダメージ+2', mod: { firstStrike: 2 } },
-  kagishi:   { name: '鍵師',   text: '素の鍵開け判定+2、逃走判定+1', mod: { lockBonus: 2, fleeBonus: 1 } },
+  tousi:     { name: '闘志',   jobs: ['warrior'], text: '戦闘で最初の攻撃のダメージ+2', mod: { firstStrike: 2 } },
+  kagishi:   { name: '鍵師',   jobs: ['thief'], text: '素の鍵開け判定+2、逃走判定+1', mod: { lockBonus: 2, fleeBonus: 1 } },
   // 通常
-  tanren:    { name: '鍛錬',   text: 'ATK+1', mod: { atk: 1 } },
+  tanren:    { name: '鍛錬',   jobs: ['warrior'], text: 'ATK+1', mod: { atk: 1 } },
   ganjou:    { name: '頑丈',   text: '最大HP+3', mod: { maxHp: 3 } },
   shunsoku:  { name: '俊足',   text: '移動のマス数+1', mod: { move: 1 } },
   shuchu:    { name: '集中',   text: '最大AP+1', mod: { maxAp: 1 } },
@@ -82,10 +82,10 @@ const PS = {
   shushuka:  { name: '収集家', text: 'ASの所持上限+1', mod: { asCap: 1 } },
   mekiki:    { name: '目利き', text: 'トレジャーを得るたびにASを1枚引く', mod: { treasureAs: 1 } },
   // レア（所持は1枚まで）
-  gouriki:   { name: '剛力',     rare: true, text: 'ATK+2', mod: { atk: 2 } },
+  gouriki:   { name: '剛力',     jobs: ['warrior'], rare: true, text: 'ATK+2', mod: { atk: 2 } },
   fukutsu:   { name: '不屈',     rare: true, text: '最大HP+5', mod: { maxHp: 5 } },
   sippu:     { name: '疾風',     rare: true, text: '移動のマス数+2', mod: { move: 2 } },
-  eiyu:      { name: '英雄の血', rare: true, text: '必殺技をLv3から使える。必殺技のダメージ+3', mod: { specialEarly: 1, specialBonus: 3 } },
+  eiyu:      { name: '英雄の血', jobs: ['warrior'], rare: true, text: '必殺技をLv3から使える。必殺技のダメージ+3', mod: { specialEarly: 1, specialBonus: 3 } },
   kouun:     { name: '幸運',     rare: true, text: 'ダイスで1が出たら自動で振り直す', mod: { lucky: 1 } },
   kyuukaku:  { name: '宝の嗅覚', rare: true, text: '鍵付き宝箱を必ず開けられ、開けるとASを1枚引く', mod: { autoLock: 1 } },
 };
@@ -94,15 +94,16 @@ const PS_DECK = { tanren: 2, ganjou: 2, shunsoku: 2, shuchu: 2, saisei: 2, karyu
 const PS_RARE_DECK = { gouriki: 1, fukutsu: 1, sippu: 1, eiyu: 1, kouun: 1, kyuukaku: 1 };
 
 // アクションスキル（AS）。使い捨て。cost はAP。
+// jobs: 取れるジョブ（省略すると全ジョブ共通。warrior=戦闘職 / thief=探索職）
 // when: battle=戦闘中 / field=自分の手番中 / any=どちらでも / lock=宝箱の前 / trap=罠にかかったとき
 const AS = {
-  kyouda:    { name: '強打',     cost: 1, when: 'battle', effect: 'strong', text: '攻撃する。ダメージ+3' },
-  senpu:     { name: '旋風斬',   cost: 1, when: 'battle', effect: 'sweep',  text: '敵全体に3ダメージ（全体攻撃）' },
+  kyouda:    { name: '強打',     cost: 1, when: 'battle', effect: 'strong', jobs: ['warrior'], text: '攻撃する。ダメージ+3（戦闘職のみ）' },
+  senpu:     { name: '旋風斬',   jobs: ['warrior'], cost: 1, when: 'battle', effect: 'sweep',  text: '敵全体に3ダメージ（全体攻撃）' },
   kaifuku:   { name: '回復薬',   cost: 1, when: 'any',    effect: 'heal',   text: 'HP+4' },
-  shissou:   { name: '疾走',     cost: 1, when: 'field',  effect: 'dash',   text: '次の移動のマス数+3' },
+  shissou:   { name: '疾走',     jobs: ['thief'], cost: 1, when: 'field',  effect: 'dash',   text: '次の移動のマス数+3' },
   kitsuke:   { name: '気付け薬', cost: 0, when: 'any',    effect: 'apup',   text: 'AP+2（最大値まで）' },
-  kagiake:   { name: '鍵開け',   cost: 0, when: 'lock',   effect: 'unlock', text: '鍵付き宝箱を確実に開ける' },
-  wanakaijo: { name: '罠解除',   cost: 0, when: 'trap',   effect: 'disarm', text: '罠を無効にする' },
+  kagiake:   { name: '鍵開け',   jobs: ['thief'], cost: 0, when: 'lock',   effect: 'unlock', text: '鍵付き宝箱を確実に開ける' },
+  wanakaijo: { name: '罠解除',   jobs: ['thief'], cost: 0, when: 'trap',   effect: 'disarm', text: '罠を無効にする' },
   kemuri:    { name: '煙玉',     cost: 1, when: 'battle', effect: 'smoke',  text: '戦闘から確実に逃げる（ボスからも）' },
   tate:      { name: '守りの盾', cost: 1, when: 'battle', effect: 'shield', text: '次の敵の反撃を0にする' },
 };
