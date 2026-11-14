@@ -866,7 +866,37 @@ function resumeGame() {
 
 function showRules() { $('#rules').classList.add('open'); }
 
+// ---------- 改善提案（GitHub の新規 issue 画面を開く。サーバー不要） ----------
+const REPO = 'satou-aaaaa/dungeon-boardgame';
+function feedbackContext() {
+  if (!S) return '画面: タイトル';
+  const p = S.players[S.cur];
+  return `画面: ゲーム中 / ${S.players.length}人 / ラウンド${S.round} / 手番: ${p.name}（${JOBS[p.job].name} Lv${p.lv} HP${p.hp} 第${p.layer + 1}層）`;
+}
+function feedbackText() {
+  const kind = $('#fb-kind').value; const text = $('#fb-text').value.trim();
+  return { title: `[提案] ${kind}：${text.split('\n')[0].slice(0, 40) || '（内容を書いてください）'}`,
+    body: `${text}\n\n---\n種類: ${kind}\n${feedbackContext()}\nバージョン: ${document.querySelector('.ver')?.textContent || ''}\nゲーム内の「改善提案」から送信` };
+}
+function setupFeedback() {
+  $('#fb-open').addEventListener('click', () => $('#feedback').classList.add('open'));
+  $('#fb-close').addEventListener('click', () => $('#feedback').classList.remove('open'));
+  $('#fb-send').addEventListener('click', () => {
+    if (!$('#fb-text').value.trim()) { toast('内容を書いてください'); return; }
+    const { title, body } = feedbackText();
+    const url = `https://github.com/${REPO}/issues/new?labels=${encodeURIComponent('feedback')}&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+    window.open(url, '_blank', 'noopener');
+    $('#feedback').classList.remove('open'); $('#fb-text').value = '';
+  });
+  $('#fb-copy').addEventListener('click', async () => {
+    if (!$('#fb-text').value.trim()) { toast('内容を書いてください'); return; }
+    const { title, body } = feedbackText();
+    try { await navigator.clipboard.writeText(`${title}\n\n${body}`); toast('コピーしました'); } catch (e) { toast('コピーできませんでした'); }
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
+  setupFeedback();
   $('#pcount').addEventListener('change', renderSetupRows);
   $('#start').addEventListener('click', startFromSetup);
   $('#resume').addEventListener('click', resumeGame);
