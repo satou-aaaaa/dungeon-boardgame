@@ -794,7 +794,7 @@ function renderPanel() {
     h += '</div>';
   } else {
     const can = canMove(p) && !busy;
-    h += `<div class="pool">手元のダイス：${p.pool.length ? p.pool.map((v) => `<span class="pdie">${DICE[v]}</span>`).join('') : '<span class="muted">なし</span>'}<br><span class="muted">${isCombat(p) ? `移動はあと${p.movesLeft}回。` : ''}残ったダイスは戦闘・鍵開け・逃走・罠でも使えます（手番の終わりに消えます）。</span></div>`;
+    h += `<div class="pool">手元のダイス：${p.pool.length ? p.pool.map((v) => `<span class="pdie">${DICE[v]}</span>`).join('') : '<span class="muted">なし</span>'}<br><span class="muted">${isCombat(p) ? `移動はあと${p.movesLeft}回。` : ''}余ったダイスは戦闘・鍵開けなどにも使えます（手番の終わりに消える）。</span></div>`;
     p.pool.forEach((v, i) => {
       h += `<button class="btn primary" data-act="move" data-die="${i}" ${can ? '' : 'disabled'}>🎲${v}で移動（${moveSteps(p, v)}マス）</button>`;
     });
@@ -808,7 +808,7 @@ function renderPanel() {
 
   // AS
   h += `<h3>アクションスキル（AS） ${p.as.length}/${s.asCap}</h3><div class="cards">`;
-  if (!p.as.length) h += '<p class="muted">なし（イベント✨・トレジャー・一部のモンスターで手に入る）</p>';
+  if (!p.as.length) h += '<p class="muted">なし（✨イベントなどで手に入る）</p>';
   p.as.forEach((id, i) => {
     const d = AS[id]; const usable = S.phase === 'action' && !S.winner && (d.when === 'field' || d.when === 'any') && canPay(p, d.cost);
     const whenTxt = { battle: '戦闘中', field: '手番中', any: 'いつでも', lock: '宝箱の前', trap: '罠のとき' }[d.when];
@@ -816,9 +816,9 @@ function renderPanel() {
   });
   h += '</div>';
   // PS
-  h += '<h3>パッシブスキル（PS）</h3><div class="cards">';
+  h += `<details class="psbox"><summary>パッシブスキル（PS） ${p.ps.length}枚：${p.ps.map((id) => esc(PS[id].name)).join('・')}</summary><div class="cards">`;
   p.ps.forEach((id) => { const d = PS[id]; h += `<div class="card ${d.rare ? 'rarecard' : ''}"><div><b>${esc(d.name)}</b>${d.rare ? ' <span class="rare">★レア</span>' : ''}<br><small>${esc(d.text)}</small></div></div>`; });
-  h += '</div>';
+  h += '</div></details>';
 
   const el = $('#panel'); el.innerHTML = h;
   el.classList.toggle('ai-turn', !!p.ai && !S.winner);
