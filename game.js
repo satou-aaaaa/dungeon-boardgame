@@ -50,7 +50,7 @@ function newGame(setup) {
     players: setup.map((s, i) => {
       const j = JOBS[s.job];
       return {
-        name: s.name, job: s.job, color: COLORS[i], lv: 1, xp: 0, hp: j.hp, ap: j.ap, exAp: 0,
+        name: s.name, job: s.job, ai: !!s.ai, color: COLORS[i], lv: 1, xp: 0, hp: j.hp, ap: j.ap, exAp: 0,
         ps: [j.startPs], as: [], layer: 0, pos: 0, pool: [], movesLeft: 0, dash: 0, rest: false,
         bossKills: [], sp: 0, turns: 0,
       };
@@ -163,7 +163,7 @@ async function startTurn() {
   p.pool = []; p.movesLeft = isCombat(p) ? 1 : 99; p.batched = false;
   if (isCombat(p)) { for (let k = 0; k < CONFIG.combatDice; k++) p.pool.push(roll(p)); log(`${p.name} 🎲${p.pool.join('・')} を振った`); }
   render(); save();
-  if (S.players.length > 1) await info('手番交代', `<p>${pname(p)}（${j.name}）のターンです。</p><p class="muted">端末を ${esc(p.name)} さんに渡してください。</p>`);
+  if (!p.ai && S.players.filter((q) => !q.ai).length > 1) await info('手番交代', `<p>${pname(p)}（${j.name}）のターンです。</p><p class="muted">端末を ${esc(p.name)} さんに渡してください。</p>`);
 }
 
 async function endTurn() {
@@ -821,6 +821,7 @@ function renderPanel() {
   h += '</div>';
 
   const el = $('#panel'); el.innerHTML = h;
+  el.classList.toggle('ai-turn', !!p.ai && !S.winner);
   el.querySelectorAll('[data-dest]').forEach((b) => b.addEventListener('click', () => chooseDest(+b.dataset.dest)));
   el.querySelectorAll('[data-as]').forEach((b) => b.addEventListener('click', () => actUseAS(+b.dataset.as)));
   el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
@@ -848,16 +849,16 @@ function showSetup() {
 }
 function renderSetupRows() {
   const n = +$('#pcount').value;
-  const rows = $('#prows'); const prev = [...rows.querySelectorAll('.srow')].map((r) => ({ name: r.querySelector('input').value, job: r.querySelector('select').value }));
+  const rows = $('#prows'); const prev = [...rows.querySelectorAll('.srow')].map((r) => ({ name: r.querySelector('input').value, job: r.querySelector('.s-job').value, ai: r.querySelector('.s-ai').value === 'ai' }));
   let h = '';
   for (let i = 0; i < n; i++) {
     const pv = prev[i] || { name: `プレイヤー${i + 1}`, job: i % 2 ? 'thief' : 'warrior' };
-    h += `<div class="srow"><span class="dot" style="background:${COLORS[i]}">${i + 1}</span><input value="${esc(pv.name)}" maxlength="12" aria-label="名前"><select aria-label="ジョブ">${Object.entries(JOBS).map(([k, j]) => `<option value="${k}" ${k === pv.job ? 'selected' : ''}>${j.name}（${j.kind}）</option>`).join('')}</select></div>`;
+    h += `<div class="srow"><span class="dot" style="background:${COLORS[i]}">${i + 1}</span><input value="${esc(pv.name)}" maxlength="12" aria-label="名前"><select class="s-ai" aria-label="操作する人"><option value="human">人</option><option value="ai" ${pv.ai ? 'selected' : ''}>AI</option></select><select class="s-job" aria-label="ジョブ">${Object.entries(JOBS).map(([k, j]) => `<option value="${k}" ${k === pv.job ? 'selected' : ''}>${j.name}（${j.kind}）</option>`).join('')}</select></div>`;
   }
   rows.innerHTML = h;
 }
 function startFromSetup() {
-  const setup = [...$('#prows').querySelectorAll('.srow')].map((r, i) => ({ name: r.querySelector('input').value.trim() || `プレイヤー${i + 1}`, job: r.querySelector('select').value }));
+  const setup = [...$('#prows').querySelectorAll('.srow')].map((r, i) => ({ name: r.querySelector('input').value.trim() || `プレイヤー${i + 1}`, job: r.querySelector('.s-job').value, ai: r.querySelector('.s-ai').value === 'ai' }));
   newGame(setup);
   $('#setup').hidden = true; $('#game').hidden = false;
   startTurn();
@@ -874,6 +875,9 @@ function showRules() { $('#rules').classList.add('open'); }
 
 // ---------- 改善提案（GitHub の新規 issue 画面を開く。サーバー不要） ----------
 const REPO = 'satou-aaaaa/dungeon-boardgame';
+// ログインなしで送る先：Google フォーム（公開の回答先。鍵ではない）。回答は satou の Google スプレッドシートに溜まる。
+const FORM_ID = '1FAIpQLScpaUcEw1vIaozraNfXuYpk2VGt2g7eMuifEWS5OfesFxIMzQ';
+const FORM_ENTRY = { text: 'entry.1471246700', ctx: 'entry.487296611' };
 function feedbackContext() {
   if (!S) return '画面: タイトル';
   const p = S.players[S.cur];
@@ -906,6 +910,7 @@ function setupFeedback() {
     });
     $('#fb-close').addEventListener('click', stop);
     $('#fb-send').addEventListener('click', stop);
+    $('#fb-form').addEventListener('click', stop);
   }
   $('#fb-close').addEventListener('click', () => $('#feedback').classList.remove('open'));
   $('#fb-send').addEventListener('click', () => {
@@ -914,6 +919,20 @@ function setupFeedback() {
     const url = `https://github.com/${REPO}/issues/new?labels=${encodeURIComponent('feedback')}&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
     window.open(url, '_blank', 'noopener');
     $('#feedback').classList.remove('open'); $('#fb-text').value = '';
+  });
+  $('#fb-form').addEventListener('click', async () => {
+    const text = $('#fb-text').value.trim();
+    if (!text) { toast('内容を書いてください'); return; }
+    const kind = $('#fb-kind').value;
+    const fd = new FormData();
+    fd.append(FORM_ENTRY.text, `[提案] ${kind}\n${text}`);
+    fd.append(FORM_ENTRY.ctx, `${feedbackContext()} / ${document.querySelector('.ver')?.textContent || ''}`);
+    try {
+      // 返事は読めない（no-cors）。送れたかは通信が通ったかで判断する
+      await fetch(`https://docs.google.com/forms/d/e/${FORM_ID}/formResponse`, { method: 'POST', mode: 'no-cors', body: fd });
+      toast('送りました。ありがとう！');
+      $('#feedback').classList.remove('open'); $('#fb-text').value = '';
+    } catch (e) { toast('送れませんでした。「コピー」で文を残せます'); }
   });
   $('#fb-copy').addEventListener('click', async () => {
     if (!$('#fb-text').value.trim()) { toast('内容を書いてください'); return; }
@@ -925,6 +944,11 @@ function setupFeedback() {
 window.addEventListener('DOMContentLoaded', () => {
   setupFeedback();
   $('#pcount').addEventListener('change', renderSetupRows);
+  $('#prows').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('s-ai')) return;
+    const row = e.target.closest('.srow'); const n = row.querySelector('.dot').textContent; const inp = row.querySelector('input');
+    if (/^(プレイヤー|AI)\d$/.test(inp.value)) inp.value = (e.target.value === 'ai' ? 'AI' : 'プレイヤー') + n;
+  });
   $('#start').addEventListener('click', startFromSetup);
   $('#resume').addEventListener('click', resumeGame);
   document.querySelectorAll('[data-rules]').forEach((b) => b.addEventListener('click', showRules));

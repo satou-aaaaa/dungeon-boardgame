@@ -139,3 +139,8 @@ select, input { background: var(--bg3); color: var(--text); border: 1px solid va
 .pdie { font-size: 1.8em; line-height: 1; margin-right: 4px; vertical-align: middle; }
 .hbtns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .hbtns .btn { text-decoration: none; }
+
+/* AIの手番中は、人が盤面のボタンを押せない（AIが自分で押す） */
+#panel.ai-turn .actions { pointer-events: none; opacity: .75; }
+#panel.ai-turn .cards button, #panel.ai-turn .dests { pointer-events: none; }
+.srow select { max-width: 9em; }
