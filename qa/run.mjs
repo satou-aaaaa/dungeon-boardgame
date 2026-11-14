@@ -39,6 +39,14 @@ async function botPlay(maxSteps) {
   for (let step = 0; step < maxSteps; step++) {
     await sleep();
     if (S.winner) return { ok: true, steps: step };
+    // ジョブ限定のAS（AS.jobs）を、そのジョブ以外が持っていたら不具合
+    for (const q of S.players) {
+      const bad = q.as.find((id) => AS[id].jobs && !AS[id].jobs.includes(q.job));
+      const badPs = q.ps.find((id) => PS[id].jobs && !PS[id].jobs.includes(q.job));
+      if (badPs) return { ok: false, steps: step, why: `ジョブ外のPS「${PS[badPs].name}」を ${JOBS[q.job].name} が持っている` };
+      if (JOBS[q.job].kind === '探索職' && st(q).atk) return { ok: false, steps: step, why: '探索職にATKがある（攻撃力の概念は無い）' };
+      if (bad) return { ok: false, steps: step, why: `ジョブ外のAS「${AS[bad].name}」を ${JOBS[q.job].name} が持っている` };
+    }
     const modal = document.querySelector('#modal.open');
     let btn = null;
     if (modal) {

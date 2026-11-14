@@ -64,11 +64,17 @@ function newGame(setup) {
   log('冒険が始まった。第3層（いちばん外側）の出口から脱出しよう！');
 }
 
-function draw(key) {
-  const d = S.decks[key];
-  if (!d.length && S.discards[key] && S.discards[key].length) { d.push(...shuffle(S.discards[key])); S.discards[key] = []; }
-  return d.length ? d.pop() : null;
+// ok: 引いてよいカードかを返す関数（ジョブ限定のASを除くのに使う）。引けないカードは山に残す
+function draw(key, ok) {
+  const d = S.decks[key]; const allow = ok || (() => true);
+  const take = () => { for (let i = d.length - 1; i >= 0; i--) if (allow(d[i])) return d.splice(i, 1)[0]; return null; };
+  let id = take();
+  if (!id && S.discards[key] && S.discards[key].length) { d.push(...shuffle(S.discards[key])); S.discards[key] = []; id = take(); }
+  return id;
 }
+// そのジョブが使えるASか（AS の jobs が無ければ全ジョブ共通）
+const asAllowed = (job, id) => !AS[id].jobs || AS[id].jobs.includes(job);
+const psAllowed = (job, id) => !PS[id].jobs || PS[id].jobs.includes(job);
 
 function log(msg) { S.log.unshift({ r: S.round, msg }); if (S.log.length > 300) S.log.length = 300; }
 function save() { try { if (S && !S.winner) localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 保存できなくても遊べる */ } }
@@ -389,7 +395,7 @@ function monsterHtml(m) {
 }
 function playerMini(p) {
   const s = st(p);
-  return `<div class="pmini">${pname(p)} HP <b>${p.hp}</b>/${s.maxHp}・AP <b>${p.ap}</b>/${s.maxAp}・EX AP ${p.exAp}・ATK ${s.atk}</div>`;
+  return `<div class="pmini">${pname(p)} HP <b>${p.hp}</b>/${s.maxHp}・AP <b>${p.ap}</b>/${s.maxAp}・EX AP ${p.exAp}${s.atk || isCombat(p) ? `・ATK ${s.atk}` : ''}</div>`;
 }
 
 async function encounter(p, m) {
@@ -430,7 +436,7 @@ async function battle(p, m) {
   for (;;) {
     const s = st(p);
     const fs = first && s.firstStrike ? s.firstStrike : 0;
-    const buttons = [{ label: `⚔️ 攻撃（ATK${s.atk}＋🎲${fs ? `＋${fs}` : ''}）`, value: 'atk', cls: 'primary' }];
+    const buttons = [{ label: `⚔️ 攻撃（${isCombat(p) ? `ATK${s.atk}＋` : ''}🎲${fs ? `＋${fs}` : ''}）`, value: 'atk', cls: 'primary' }];
     buttons.push(...dieBtns(p, 'adie', (v) => `⚔️ 手元の🎲${v}で攻撃（${s.atk + v + fs}ダメージ）`));
     p.as.forEach((id, i) => {
       const d = AS[id];
@@ -534,7 +540,7 @@ function exploreXp(p, why) {
 }
 
 async function gainAS(p) {
-  const id = draw('as');
+  const id = draw('as', (x) => asAllowed(p.job, x));
   if (!id) { log('ASの山が尽きている'); toast('ASの山が尽きている'); return; }
   p.as.push(id);
   log(`${p.name} はAS「${AS[id].name}」を得た`);
@@ -689,8 +695,8 @@ async function draft(p, before) {
   const lowest = others.length > 0 && others.every((q) => before < q.lv);
   const nNormal = (rare ? 2 : 3) + (lowest ? 1 : 0);
   const cards = [];
-  for (let i = 0; i < nNormal; i++) { const id = S.decks.ps.pop(); if (id) cards.push(id); }
-  if (rare) { const id = S.decks.psr.pop(); if (id) cards.push(id); }
+  for (let i = 0; i < nNormal; i++) { const id = draw('ps', (x) => psAllowed(p.job, x)); if (id) cards.push(id); }
+  if (rare) { const id = draw('psr', (x) => psAllowed(p.job, x)); if (id) cards.push(id); }
   const g = JOBS[p.job].growth[p.lv] || {};
   const gtxt = Object.entries(g).map(([k, v]) => `${STAT_LABEL[k]}+${v}`).join('、');
   const html = `<p>${pname(p)} が <b>Lv${p.lv}</b> になった！</p>
@@ -768,7 +774,7 @@ function renderPanel() {
     <div>AP <b>${p.ap}</b>/${s.maxAp}${bar(p.ap, s.maxAp, 'ap')}</div>
     <div>Lv <b>${p.lv}</b>　経験値 ${p.xp}${nextXp ? `/${nextXp}` : '（最大）'}</div>
     <div>EX AP <b>${'◆'.repeat(p.exAp)}${'◇'.repeat(CONFIG.exApMax - p.exAp)}</b></div>
-    <div>ATK <b>${s.atk}</b>　移動 ${j.moveDie === 'half' ? '🎲÷2' : '🎲'}${s.move ? `+${s.move}` : ''}${p.dash ? `（次+${p.dash}）` : ''}</div>
+    <div>${isCombat(p) ? `ATK <b>${s.atk}</b>　` : ''}移動 ${j.moveDie === 'half' ? '🎲÷2' : '🎲'}${s.move ? `+${s.move}` : ''}${p.dash ? `（次+${p.dash}）` : ''}</div>
     <div>脱出：${escapeText(p)}</div>
   </div>
   <div class="where">現在地：第${p.layer + 1}層・${ICONS[sq.type]} ${SQ_NAME[sq.type]}</div>
