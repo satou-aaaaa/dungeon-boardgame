@@ -53,7 +53,7 @@ const JOBS = {
     name: '盗賊', kind: '探索職',
     hp: 6, atk: 0, ap: 2,        // 最大APは Lv3 で+1（1個ずつ振る形に合わせた調整）
     apRegen: 3,           // 毎ターンAP+3（最大値まで）。1個ずつ振る形にしたので+2から上げた
-    moveDie: 'half',      // 移動は🎲の半分（切り上げ）
+    moveDie: 'full',      // 移動は🎲の出目そのまま（#28 で半分をやめた）
     canFlee: true,
     startPs: 'kagishi',
     escape: 'sp',
